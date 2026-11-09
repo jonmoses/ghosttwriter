@@ -118,6 +118,14 @@ final class GitStatusService {
         do {
             let out = try await runner.run(["rev-parse", "--show-toplevel"], cwd: cwd, timeout: timeout)
             root = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch GitRunnerError.timedOut {
+            // A slow repo is still a repo: keep the root we already know and show "?".
+            if let previous = store.repoRoots[cwd] {
+                store.applyGit(cwd: cwd, repoRoot: previous, state: timedOutState(root: previous))
+            } else {
+                store.applyGit(cwd: cwd, repoRoot: nil, state: nil)
+            }
+            return
         } catch {
             store.applyGit(cwd: cwd, repoRoot: nil, state: nil)
             return
@@ -131,14 +139,18 @@ final class GitStatusService {
             let out = try await runner.run(["status", "--porcelain=v2", "--branch"], cwd: root, timeout: timeout)
             store.applyGit(cwd: cwd, repoRoot: root, state: GitPorcelain.parse(out))
         } catch GitRunnerError.timedOut {
-            let state = GitState(
-                branch: store.git[root]?.branch ?? "",
-                ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0,
-                timedOut: true)
-            store.applyGit(cwd: cwd, repoRoot: root, state: state)
+            store.applyGit(cwd: cwd, repoRoot: root, state: timedOutState(root: root))
         } catch {
             store.applyGit(cwd: cwd, repoRoot: root, state: nil)
         }
+    }
+
+    /// The "?" state: previous branch kept, counts zeroed, timedOut set.
+    private func timedOutState(root: String) -> GitState {
+        GitState(
+            branch: store.git[root]?.branch ?? "",
+            ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0,
+            timedOut: true)
     }
 
     func startPolling(visibleCwds: @escaping @MainActor () -> [String]) {

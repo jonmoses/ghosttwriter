@@ -4,11 +4,15 @@ import Testing
 
 final class FakeGit: GitRunner, @unchecked Sendable {
     var delay: TimeInterval = 0
+    var revParseTimesOut = false
     let lock = NSLock(); var running = 0; var peak = 0
     func run(_ args: [String], cwd: String, timeout: TimeInterval) async throws -> String {
         lock.withLock { running += 1; peak = max(peak, running) }
         defer { lock.withLock { running -= 1 } }
-        if args.contains("--show-toplevel") { return try cwd.hasPrefix("/repo") ? "/repo\n" : { throw GitRunnerError.failed(128) }() }
+        if args.contains("--show-toplevel") {
+            if revParseTimesOut { try await Task.sleep(for: .seconds(timeout)); throw GitRunnerError.timedOut }
+            return try cwd.hasPrefix("/repo") ? "/repo\n" : { throw GitRunnerError.failed(128) }()
+        }
         if delay > timeout { try await Task.sleep(for: .seconds(timeout)); throw GitRunnerError.timedOut }
         try await Task.sleep(for: .seconds(delay))
         return "# branch.head main\n? x\n"
@@ -38,6 +42,17 @@ struct GitStatusServiceTests {
         let svc = GitStatusService(store: s, runner: g, timeout: 0.2)
         await svc.refresh(cwd: "/repo")
         #expect(s.git["/repo"]?.timedOut == true)
+    }
+
+    @Test func revParseTimeoutKeepsPreviousRoot() async throws {
+        let s = try store(); let g = FakeGit()
+        let svc = GitStatusService(store: s, runner: g, timeout: 0.2)
+        await svc.refresh(cwd: "/repo/sub")
+        #expect(s.repoRoots["/repo/sub"] == "/repo" && s.git["/repo"]?.timedOut == false)
+        g.revParseTimesOut = true
+        await svc.refresh(cwd: "/repo/sub")
+        #expect(s.repoRoots["/repo/sub"] == "/repo")
+        #expect(s.git["/repo"]?.timedOut == true && s.git["/repo"]?.branch == "main")
     }
 
     @Test func atMostFourConcurrent() async throws {

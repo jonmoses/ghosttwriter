@@ -51,4 +51,19 @@ struct SidePaneModelTests {
         #expect(html.contains("file:///R/markdown-it.min.js") && html.contains("file:///R/mermaid.min.js"))
         #expect(!html.contains("http://") && !html.contains("https://"))
     }
+
+    @Test func markdownAnchorLinksStayInPage() {
+        let page = URL(string: "file:///tmp/G/abc.html")!
+        let doc = URL(fileURLWithPath: "/docs/notes.md")
+        let base = doc.deletingLastPathComponent()
+        func frag(_ s: String, base: URL?) -> String? {
+            SidePaneLinks.inPageFragment(URL(string: s)!, page: page, document: doc, baseDirectory: base)
+        }
+        #expect(frag("file:///docs/#intro", base: base) == "intro")
+        #expect(frag("file:///docs/notes.md#intro", base: base) == "intro")
+        #expect(frag("file:///tmp/G/abc.html#x", base: base) == "x")
+        #expect(frag("file:///docs/other.md#x", base: base) == nil)
+        #expect(frag("file:///docs/", base: base) == nil)
+        #expect(frag("file:///docs/#intro", base: nil) == nil)
+    }
 }

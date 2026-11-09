@@ -15,6 +15,7 @@ struct SidePane: View {
     @AppStorage(SidePane.fractionKey) private var fraction: Double = SidePane.defaultFraction
     @State private var dragStart: (width: CGFloat, fraction: Double)?
     @State private var paneWidth: CGFloat = 0
+    @State private var cursorPushed = false
 
     init(model: SidePaneModel) {
         self.model = model
@@ -106,9 +107,8 @@ struct SidePane: View {
             .frame(width: 1)
             .frame(width: 5)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-            }
+            .onHover { inside in setResizeCursor(inside) }
+            .onDisappear { setResizeCursor(false) }
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
@@ -120,6 +120,14 @@ struct SidePane: View {
                     }
                     .onEnded { _ in dragStart = nil }
             )
+    }
+
+    /// Pushes the resize cursor at most once and pops only what was pushed, so the cursor
+    /// stack stays balanced even when the pane disappears while hovered.
+    private func setResizeCursor(_ on: Bool) {
+        guard on != cursorPushed else { return }
+        cursorPushed = on
+        if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
     }
 }
 
@@ -229,9 +237,9 @@ private struct SidePaneWebView: NSViewRepresentable {
             html = html.replacingOccurrences(
                 of: "<head>",
                 with: "<head>\n<base href=\"\(MarkdownPage.escapeHTML(dir.absoluteString))\">")
-            let folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("Ghosttwriter-SidePane", isDirectory: true)
+            let folder = Self.pageFolder
             let file = folder.appendingPathComponent("\(UUID().uuidString).html")
+            removePage()
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try html.write(to: file, atomically: true, encoding: .utf8)
@@ -239,10 +247,18 @@ private struct SidePaneWebView: NSViewRepresentable {
                 webView.loadHTMLString(html, baseURL: dir)
                 return
             }
-            removePage()
             page = file
             webView.loadFileURL(file, allowingReadAccessTo: Self.commonAncestor([folder, dir, resources]))
         }
+
+        /// The folder for rendered Markdown pages. The first use in a process clears pages
+        /// left behind by an earlier run that did not tear its panes down (a crash).
+        static let pageFolder: URL = {
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Ghosttwriter-SidePane", isDirectory: true)
+            try? FileManager.default.removeItem(at: folder)
+            return folder
+        }()
 
         private func removePage() {
             if let page { try? FileManager.default.removeItem(at: page) }
@@ -278,10 +294,19 @@ private struct SidePaneWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            // Same-page anchors stay in the page.
-            if let current = webView.url, target.fragment != nil,
-               target.absoluteString.hasPrefix(current.absoluteString.components(separatedBy: "#")[0] + "#") {
-                decisionHandler(.allow)
+            // Same-page anchors stay in the page. In a Markdown page `<base>` points at the
+            // document's directory, so "#x" arrives as "<dir>/#x"; jump to it with
+            // `location.hash`, which resolves against the page itself.
+            if let fragment = SidePaneLinks.inPageFragment(
+                target, page: webView.url, document: url ?? target,
+                baseDirectory: kind == .markdown ? url?.deletingLastPathComponent() : nil) {
+                if let current = webView.url, SidePaneLinks.stripFragment(current) == SidePaneLinks.stripFragment(target) {
+                    decisionHandler(.allow)
+                } else {
+                    decisionHandler(.cancel)
+                    let literal = (try? JSONEncoder().encode("#" + fragment)).map { String(decoding: $0, as: UTF8.self) }
+                    if let literal { webView.evaluateJavaScript("location.hash = \(literal); 0") }
+                }
                 return
             }
             decisionHandler(.cancel)
@@ -291,6 +316,34 @@ private struct SidePaneWebView: NSViewRepresentable {
                 NSWorkspace.shared.open(target)
             }
         }
+    }
+}
+
+/// Link classification for the side pane's web view.
+enum SidePaneLinks {
+    /// The fragment of `target` when it points into the page being shown: the page itself,
+    /// the source document, or (when a `<base>` was injected) the base directory with a
+    /// fragment. Returns nil for links that leave the page.
+    static func inPageFragment(_ target: URL, page: URL?, document: URL, baseDirectory: URL?) -> String? {
+        guard let fragment = target.fragment else { return nil }
+        let bare = stripFragment(target)
+        var same: [URL] = [stripFragment(document)]
+        if let page { same.append(stripFragment(page)) }
+        if let baseDirectory { same.append(stripFragment(baseDirectory)) }
+        return same.contains { sameLocation($0, bare) } ? fragment : nil
+    }
+
+    static func stripFragment(_ url: URL) -> URL {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return url }
+        parts.fragment = nil
+        return parts.url ?? url
+    }
+
+    private static func sameLocation(_ a: URL, _ b: URL) -> Bool {
+        if a.isFileURL && b.isFileURL {
+            return a.standardizedFileURL.path == b.standardizedFileURL.path
+        }
+        return a.absoluteString == b.absoluteString
     }
 }
 

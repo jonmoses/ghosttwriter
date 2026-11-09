@@ -47,6 +47,13 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     // An optional delegate to receive information about terminal changes.
     weak var delegate: (any TerminalViewDelegate)?
 
+    /// Ghosttwriter: the tab's side pane. When set, the terminal is shown inside the
+    /// workbench (sidebar, snapshot cards and side pane). The quick terminal leaves it nil.
+    var workbenchPane: SidePaneModel?
+
+    /// Ghosttwriter: the window the workbench sidebar lists the tabs of.
+    weak var workbenchWindow: NSWindow?
+
     /// The most recently focused surface, equal to `focusedSurface` when it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView>?
 
@@ -72,40 +79,42 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
             ErrorView()
         case .ready:
             ZStack {
-                VStack(spacing: 0) {
-                    // If we're running in debug mode we show a warning so that users
-                    // know that performance will be degraded.
-                    if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
-                        DebugBuildWarningView()
-                    }
+                workbench {
+                    VStack(spacing: 0) {
+                        // If we're running in debug mode we show a warning so that users
+                        // know that performance will be degraded.
+                        if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
+                            DebugBuildWarningView()
+                        }
 
-                    TerminalSplitTreeView(
-                        tree: viewModel.surfaceTree,
-                        action: { delegate?.performSplitAction($0) })
-                        .environmentObject(ghostty)
-                        .ghosttyLastFocusedSurface(lastFocusedSurface)
-                        .focused($focused)
-                        .onAppear { self.focused = true }
-                        .onChange(of: focusedSurface) { newValue in
-                            // We want to keep track of our last focused surface so even if
-                            // we lose focus we keep this set to the last non-nil value.
-                            if newValue != nil {
-                                lastFocusedSurface = .init(newValue)
-                                self.delegate?.focusedSurfaceDidChange(to: newValue)
+                        TerminalSplitTreeView(
+                            tree: viewModel.surfaceTree,
+                            action: { delegate?.performSplitAction($0) })
+                            .environmentObject(ghostty)
+                            .ghosttyLastFocusedSurface(lastFocusedSurface)
+                            .focused($focused)
+                            .onAppear { self.focused = true }
+                            .onChange(of: focusedSurface) { newValue in
+                                // We want to keep track of our last focused surface so even if
+                                // we lose focus we keep this set to the last non-nil value.
+                                if newValue != nil {
+                                    lastFocusedSurface = .init(newValue)
+                                    self.delegate?.focusedSurfaceDidChange(to: newValue)
+                                }
                             }
-                        }
-                        .onChange(of: pwdURL) { newValue in
-                            self.delegate?.pwdDidChange(to: newValue)
-                        }
-                        .onChange(of: cellSize) { newValue in
-                            guard let size = newValue else { return }
-                            self.delegate?.cellSizeDidChange(to: size)
-                        }
-                        .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                               idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                            .onChange(of: pwdURL) { newValue in
+                                self.delegate?.pwdDidChange(to: newValue)
+                            }
+                            .onChange(of: cellSize) { newValue in
+                                guard let size = newValue else { return }
+                                self.delegate?.cellSizeDidChange(to: size)
+                            }
+                            .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                                   idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                    }
+                    // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
+                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
                 }
-                // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-                .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
 
                 if let surfaceView = lastFocusedSurface?.value {
                     TerminalCommandPaletteView(
@@ -123,6 +132,23 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 }
             }
             .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
+        }
+    }
+}
+
+extension TerminalView {
+    /// Wraps `content` in the workbench when this view has a side pane.
+    @ViewBuilder
+    fileprivate func workbench<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if let workbenchPane {
+            WorkbenchContainer(
+                window: workbenchWindow,
+                paneModel: workbenchPane,
+                store: .shared,
+                focusedSurface: { ($0.windowController as? BaseTerminalController)?.focusedSurface?.id },
+                content: content)
+        } else {
+            content()
         }
     }
 }

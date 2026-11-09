@@ -18,7 +18,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return defaultValue
         }
 
-        let nib = switch config.macosTitlebarStyle {
+        let nib = switch config.workbenchTitlebarStyle {
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
         case .transparent: "TerminalTransparentTitlebar"
@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// Ghosttwriter: this tab's side pane and snapshot cards.
+    let workbenchPane = SidePaneModel()
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -77,6 +80,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.derivedConfig = DerivedConfig(ghostty.config)
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
+
+        // Ghosttwriter: `gtw show` from any surface of this tab lands in this tab's side pane.
+        SidePaneRegistry.shared.register(workbenchPane) { [weak self] id in
+            self?.surfaceTree.contains(where: { $0.id == id }) ?? false
+        }
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -486,6 +494,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // set while `-[NSWindowController showWindow:]` is called, but we're
                 // dispatching it to resolve other issues.
                 parent.tabGroup?.selectedWindow = window
+
+                // Ghosttwriter: the sidebar replaces the native tab bar.
+                TabGroupBridge(window: window).hideTabBar()
             }
         }
 
@@ -521,6 +532,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // solution we should do that.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             controller.relabelTabs()
+            controller.hideNativeTabBar()
         }
 
         // Setup our undo
@@ -549,6 +561,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         return controller
+    }
+
+    // MARK: - Workbench
+
+    /// Opens `record` in a new tab next to this one, in its cwd and color, and reattaches it.
+    func newTab(resuming record: SessionRecord) {
+        Self.openResumed(record, ghostty: ghostty, from: window)
+    }
+
+    /// Opens `record` in a new tab of `parent`, or in a new window when `parent` is nil.
+    /// The record is reattached to the new surface before control returns to the run loop,
+    /// so the resumed Claude session's first hook already finds it.
+    static func openResumed(_ record: SessionRecord, ghostty: Ghostty.App, from parent: NSWindow?) {
+        var config = Ghostty.SurfaceConfiguration()
+        config.workingDirectory = record.cwd
+        config.initialInput = CloseDecision.resumeInput(record)
+        config.environmentVariables["TABCOLOR"] = record.color.rawValue
+
+        let controller = parent == nil
+            ? newWindow(ghostty, withBaseConfig: config)
+            : newTab(ghostty, from: parent, withBaseConfig: config)
+        guard let surface = controller?.surfaceTree.first?.id else { return }
+
+        let store = WorkbenchStore.shared
+        do {
+            try store.setColor(surface: surface, record.color)
+            try store.reattach(record: record.id, to: surface)
+        } catch {
+            Ghostty.logger.warning("resume could not reattach the record: \(error, privacy: .public)")
+        }
     }
 
     // MARK: - Methods
@@ -1114,7 +1156,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Initialize our content view to the SwiftUI root
         let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            TerminalView(
+                ghostty: ghostty,
+                viewModel: self,
+                delegate: self,
+                workbenchPane: workbenchPane,
+                workbenchWindow: window)
         }
 
         // Set the initial content size on the container so that
@@ -1268,6 +1315,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        self.hideNativeTabBar()
+    }
+
+    /// Ghosttwriter: no native tab bar is ever visible; the sidebar lists the tabs.
+    private func hideNativeTabBar() {
+        guard let window else { return }
+        TabGroupBridge(window: window).hideTabBar()
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -1323,6 +1377,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
+
+        // Ghosttwriter: an active session asks for a note instead of Ghostty's confirm.
+        if WorkbenchCloseHook.interceptTabClose(
+            window: window,
+            focusedSurface: focusedSurface?.id,
+            store: .shared,
+            close: { self.closeTabImmediately() }) {
+            return
+        }
+
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
             closeWindow(sender)
             return
@@ -1735,7 +1799,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         init(_ config: Ghostty.Config) {
             self.backgroundColor = config.backgroundColor
             self.macosWindowButtons = config.macosWindowButtons
-            self.macosTitlebarStyle = config.macosTitlebarStyle
+            self.macosTitlebarStyle = config.workbenchTitlebarStyle
             self.maximize = config.maximize
             self.windowPositionX = config.windowPositionX
             self.windowPositionY = config.windowPositionY

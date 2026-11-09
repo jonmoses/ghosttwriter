@@ -4,6 +4,7 @@ import UserNotifications
 import OSLog
 import Sparkle
 import GhosttyKit
+import WorkbenchProtocol
 
 class AppDelegate: NSObject,
                     ObservableObject,
@@ -98,6 +99,12 @@ class AppDelegate: NSObject,
 
     /// The dock menu
     private var dockMenu: NSMenu = NSMenu()
+
+    /// Ghosttwriter: answers `gtw` requests on the control socket.
+    private var controlServer: ControlServer?
+
+    /// Ghosttwriter: refreshes git status for the key window's repos.
+    private var gitStatus: GitStatusService?
 
     /// This is only true before application has become active.
     private var applicationHasBecomeActive: Bool = false
@@ -347,6 +354,9 @@ class AppDelegate: NSObject,
         // Setup our menu
         setupMenuImages()
 
+        // Ghosttwriter: control socket, git status and the Workbench menu.
+        startWorkbench()
+
         // Setup signal handlers
         setupSignals()
 
@@ -438,6 +448,11 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Ghosttwriter: keep every live session as a resumable record.
+        try? WorkbenchStore.shared.saveAllLive()
+        controlServer?.stop()
+        gitStatus?.stop()
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
@@ -995,6 +1010,48 @@ class AppDelegate: NSObject,
         let shouldPresent = ghostty.shouldPresentNotification(notification: willPresent)
         let options: UNNotificationPresentationOptions = shouldPresent ? [.banner, .sound] : []
         withCompletionHandler(options)
+    }
+
+    // MARK: - Workbench
+
+    @MainActor
+    private func startWorkbench() {
+        let store = WorkbenchStore.shared
+        let router = WorkbenchShowRouter(terminalWidth: { [weak self] surface in
+            self?.findSurface(forUUID: surface)?.bounds.width
+        })
+        let server = ControlServer(
+            store: store,
+            presenter: router,
+            socketPath: SocketPaths.defaultSocket(home: NSHomeDirectory()))
+        do {
+            try server.start()
+            controlServer = server
+        } catch {
+            Self.logger.error("workbench control socket failed to start: \(error, privacy: .public)")
+        }
+
+        let git = GitStatusService(store: store)
+        git.startPolling(visibleCwds: { Self.keyTabGroupCwds(store: store) })
+        gitStatus = git
+
+        if let mainMenu = NSApp.mainMenu {
+            WorkbenchMenu.install(in: mainMenu, target: self)
+        }
+    }
+
+    /// The working directories of every surface in the key window's tab group.
+    @MainActor
+    private static func keyTabGroupCwds(store: WorkbenchStore) -> [String] {
+        guard let window = WorkbenchMenu.activeController()?.window else { return [] }
+        let windows = window.tabGroup?.windows ?? [window]
+        return windows.flatMap { w -> [String] in
+            guard let controller = w.windowController as? BaseTerminalController else { return [] }
+            return controller.surfaceTree.compactMap { view in
+                if let pwd = view.pwd, !pwd.isEmpty { return pwd }
+                return store.liveSurfaces[view.id]?.cwd
+            }
+        }
     }
 
     // MARK: - GhosttyAppDelegate

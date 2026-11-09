@@ -295,6 +295,7 @@
 				A5B3052D299BEAAA0047F10C /* Sources */,
 				A5B3052E299BEAAA0047F10C /* Frameworks */,
 				A5B3052F299BEAAA0047F10C /* Resources */,
+				6A7B10102FB0000100C0FFEE /* Build gtw */,
 				819324572F24E74E00A9ED8F /* Copy DockTilePlugin */,
 			);
 			buildRules = (
@@ -412,6 +413,38 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		6A7B10102FB0000100C0FFEE /* Build gtw */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/gtw/Package.swift",
+				"$(SRCROOT)/gtw/Sources/gtw",
+				"$(SRCROOT)/gtw/Sources/GtwCore",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol",
+				"$(SRCROOT)/gtw/Sources/gtw/main.swift",
+				"$(SRCROOT)/gtw/Sources/GtwCore/Gtw.swift",
+				"$(SRCROOT)/gtw/Sources/GtwCore/KittyImage.swift",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketClient.swift",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketIO.swift",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketListener.swift",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/Types.swift",
+				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/WireCodec.swift",
+			);
+			name = "Build gtw";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/gtw",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd \"$SRCROOT/gtw\" && env -i HOME=\"$HOME\" PATH=/usr/bin:/bin swift build -c release --product gtw && cp \"$(swift build -c release --show-bin-path)/gtw\" \"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/gtw\"\n";
+			showEnvVarsInLog = 0;
+		};
 		FC501E0B2F46B410007AE49D /* Run SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

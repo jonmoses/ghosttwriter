@@ -226,6 +226,9 @@ extension Ghostty {
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
 
+        /// Ghosttwriter: subscriptions forwarding pwd and title changes to the workbench store.
+        private var workbenchCancellables: Set<AnyCancellable> = []
+
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
@@ -383,8 +386,18 @@ extension Ghostty {
                 ]
             ) { [weak self] event in self?.localEventHandler(event) }
 
+            // Ghosttwriter: register the surface with the workbench and give its shell
+            // the surface id, tab color and control socket before the shell starts.
+            var surface_cfg = baseConfig ?? SurfaceConfiguration()
+            WorkbenchEnvironment.apply(
+                to: &surface_cfg.environmentVariables,
+                surface: id,
+                cwd: surface_cfg.workingDirectory ?? NSHomeDirectory(),
+                parent: surface_cfg.workbenchParent,
+                store: .shared)
+            observeWorkbenchChanges()
+
             // Setup our surface. This will also initialize all the terminal IO.
-            let surface_cfg = baseConfig ?? SurfaceConfiguration()
             let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
                 ghostty_surface_new(app, &surface_cfg_c)
             }
@@ -405,7 +418,34 @@ extension Ghostty {
             fatalError("init(coder:) is not supported for this view")
         }
 
+        /// Forwards pwd and title changes to the workbench store.
+        private func observeWorkbenchChanges() {
+            let id = self.id
+            $pwd
+                .removeDuplicates()
+                .sink { pwd in
+                    guard let pwd, !pwd.isEmpty else { return }
+                    WorkbenchStore.shared.surfaceChanged(id, cwd: pwd, title: nil)
+                }
+                .store(in: &workbenchCancellables)
+            $title
+                .removeDuplicates()
+                .sink { title in
+                    guard !title.isEmpty else { return }
+                    WorkbenchStore.shared.surfaceChanged(id, cwd: nil, title: title)
+                }
+                .store(in: &workbenchCancellables)
+        }
+
         deinit {
+            // Ghosttwriter: the surface is gone, so its session record is saved or dropped.
+            let workbenchSurface = self.id
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { WorkbenchStore.shared.surfaceClosed(workbenchSurface) }
+            } else {
+                DispatchQueue.main.async { WorkbenchStore.shared.surfaceClosed(workbenchSurface) }
+            }
+
             // Resolve clipboard callback state while surfaceModel is still
             // alive. The request's weak SurfaceView reference is already nil
             // during deinit, so didSet passes this instance explicitly.

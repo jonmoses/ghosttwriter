@@ -289,6 +289,10 @@ class BaseTerminalController: NSWindowController,
 
         // Create a new surface view
         guard let ghostty_app = ghostty.app else { return nil }
+
+        // Ghosttwriter: a split shares its tab's color.
+        var config = config ?? Ghostty.SurfaceConfiguration()
+        config.workbenchParent = oldView.id
         let newView = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
 
         // Do the split

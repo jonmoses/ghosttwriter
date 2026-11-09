@@ -666,12 +666,12 @@ class TerminalWindow: NSWindow {
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
             self.backgroundBlur = config.backgroundBlur
-            self.macosTitlebarStyle = config.macosTitlebarStyle
+            self.macosTitlebarStyle = config.workbenchTitlebarStyle
 
             // Set corner radius based on macos-titlebar-style
             // Native, transparent, and hidden styles use 16pt radius
             // Tabs style uses 20pt radius
-            switch config.macosTitlebarStyle {
+            switch config.workbenchTitlebarStyle {
             case .tabs:
                 self.windowCornerRadius = 20
             default:
@@ -902,5 +902,17 @@ extension TerminalWindow: TabTitleEditorDelegate {
               let focusedSurface = controller.focusedSurface
         else { return }
         makeFirstResponder(focusedSurface)
+    }
+}
+
+// MARK: Ghosttwriter
+
+extension Ghostty.Config {
+    /// The configured `macos-titlebar-style` as Ghosttwriter windows use it. The native tab
+    /// bar is never shown, so `tabs` becomes `transparent` (see `WorkbenchEnvironment`).
+    var workbenchTitlebarStyle: MacOSTitlebarStyle {
+        let configured = macosTitlebarStyle
+        return MacOSTitlebarStyle(rawValue: WorkbenchEnvironment.effectiveTitlebarStyle(configured.rawValue))
+            ?? configured
     }
 }

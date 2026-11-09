@@ -246,8 +246,9 @@ class AppDelegate: NSObject,
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
 
-        // Start our update checker.
-        updateController.startUpdater()
+        // Ghosttwriter does not use Sparkle: the updater is never started
+        // and the "Check for Updates" menu item is hidden.
+        menuCheckForUpdates?.isHidden = true
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
@@ -1037,8 +1038,9 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        updateController.checkForUpdates()
-        // UpdateSimulator.happyPath.simulate(with: updateViewModel)
+        // Sparkle is disabled in Ghosttwriter; the updater is never started,
+        // so this action (still reachable via the check_for_updates
+        // keybinding) does nothing.
     }
 
     @IBAction func newWindow(_ sender: Any?) {

@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ghosttwriter v1</title>
+<meta name="spec-status" content="draft">
+<meta name="spec-date" content="2026-11-09">
+<style>
+:root{--bg:#fff;--fg:#1b1b1b;--muted:#6b6b6b;--line:#d9d9d9;--accent:#1f7a4d;--code:#f4f4f4}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#e8e8e8;--muted:#9a9a9a;--line:#333;--accent:#5fc08c;--code:#1d1d1d}}
+body{margin:0;padding:1rem;font:16px/1.55 system-ui,-apple-system,sans-serif;color:var(--fg);background:var(--bg)}
+main{max-width:64rem;margin:0 auto}
+header{border-bottom:1px solid var(--line);margin-bottom:1.5rem;padding-bottom:.75rem}
+h1{font-size:1.8rem;margin:.2rem 0}h2{font-size:1.3rem;margin:2.2rem 0 .6rem;padding-top:.4rem;border-top:1px solid var(--line)}h3{font-size:1.05rem;margin:1.4rem 0 .4rem}
+.meta{color:var(--muted);font-size:.9rem}
+nav{font-size:.9rem;color:var(--muted)}nav a{margin-right:.8rem;color:var(--accent);text-decoration:none}
+table{border-collapse:collapse;width:100%;margin:.8rem 0;font-size:.93rem}th,td{border:1px solid var(--line);padding:.4rem .6rem;text-align:left;vertical-align:top}th{background:var(--code)}
+pre{background:var(--code);padding:.75rem;overflow-x:auto;font-size:.86rem;line-height:1.4}code{font-size:.9em}
+pre.mermaid{background:transparent;padding:0}
+figure{margin:1.2rem 0}figcaption{color:var(--muted);font-size:.9rem;margin-top:.3rem}
+ol li,ul li{margin:.25rem 0}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>ghosttwriter v1</h1>
+<p class="meta">Design spec · 2026-11-09 · status: draft</p>
+<nav id="toc"></nav>
+</header>
+
+<section id="goal">
+<h2>1. Goal</h2>
+<p>Ghosttwriter is a fork of Ghostty (macOS only) for one person who runs several Claude Code sessions side by side. It adds a <strong>workbench</strong> around the terminal:</p>
+<ul>
+<li>A vertical tab sidebar on the left. Tabs are grouped by git repo, and each row shows its Claude color, directory, git state, Claude status and goal progress.</li>
+<li>A goals panel per session: a short checklist of high-level criteria such as "identify the source of the bug". Both the user and Claude write to it, and every change is logged. The same list answers "did I finish what I was doing in this tab?"</li>
+<li>A resume dashboard. Closing a tab that has a Claude session records it with a "still to finish" note, so it can be reopened later with <code>claude --resume</code>.</li>
+<li>A side pane per tab that shows HTML, Markdown or PDF beside the terminal. Small HTML pages appear instead as an inline snapshot card.</li>
+</ul>
+<table>
+<tr><th>Success criterion</th><th>Measured by</th></tr>
+<tr><td>Find the tab you want without reading titles</td><td>With 8 tabs across 3 repos open, every tab is visible in the sidebar under its repo with its color dot. No native tab bar is drawn.</td></tr>
+<tr><td>Know at a glance whether each Claude session is working, waiting on you or done</td><td>The row badge changes within 1 s of the Claude Code hook firing</td></tr>
+<tr><td>Close a tab without losing your place</td><td>Closing a Claude tab and reopening it from the dashboard (⌘⌥R) restores the same session id, cwd, color, goals and note</td></tr>
+<tr><td>Goals persist and are logged</td><td>Goals and their events survive an app restart. The log shows each add, check and uncheck with who did it and when.</td></tr>
+<tr><td>Claude can show a page beside the chat</td><td><code>gtw show report.html</code> from Claude's Bash tool opens the page in that tab's side pane (or as an inline card) within 1 s, and it reloads on save</td></tr>
+<tr><td>Stays mergeable with upstream</td><td><code>git merge upstream/main</code> conflicts only in files listed under <a href="#components">Components → Upstream files touched</a></td></tr>
+</table>
+</section>
+
+<section id="context">
+<h2>2. Context</h2>
+<p><strong>Today.</strong> The user runs stock Ghostty 1.3.1 with TokyoNight Night, <code>macos-titlebar-style = tabs</code> and <code>confirm-close-surface = always</code>. <code>~/.config/ghostty/tabcolor.zsh</code> assigns each new tab the least-used of Claude Code's 8 session colors (red blue green yellow purple orange pink cyan), exports <code>TABCOLOR</code>, and wraps <code>claude</code> so a new session runs <code>/color $TABCOLOR</code>. Directory and git state come from the shell prompt. Nothing records which tabs are mid-task, and closing a tab loses that context.</p>
+<p><strong>The fork.</strong> <a href="https://github.com/jonmoses/ghosttwriter">jonmoses/ghosttwriter</a>, cloned with <code>upstream</code> pointing at ghostty-org/ghostty (head <code>2166b446e</code>, 2026-11-09). The parts this design has to fit into:</p>
+<ul>
+<li>The macOS app lives in <code>macos/Sources</code> (Swift, AppKit + SwiftUI). Each tab is its own <code>NSWindow</code> in a native <code>tabGroup</code>, controlled by <code>TerminalController</code>. A tab's content is <code>TerminalView</code>, which holds a split tree of <code>SurfaceView</code>s.</li>
+<li><code>SurfaceView</code> has a stable <code>id: UUID</code>, a published <code>pwd</code> (from OSC 7 shell integration) and a published <code>title</code>. <code>SurfaceConfiguration</code> has <code>environmentVariables</code> and <code>initialInput</code>, which get passed to the core when a surface is created.</li>
+<li>The core appends the app's <code>Contents/MacOS</code> directory to <code>PATH</code> in every shell, so a binary placed there can be run by name.</li>
+<li>Ghostty already draws the Kitty graphics protocol. <code>window-show-tab-bar = never</code> only works on GTK.</li>
+<li>Build with <code>macos/build.nu</code> and run unit tests with <code>macos/build.nu --action test</code>. Building needs Zig 0.17.0, which is not installed yet.</li>
+</ul>
+<p><strong>Claude Code.</strong> Hooks receive JSON on stdin (<code>session_id</code>, <code>cwd</code>, <code>hook_event_name</code>, plus fields for each event) and inherit the environment of the shell that launched <code>claude</code>. Output from Claude's Bash tool is captured through a pipe and never reaches the terminal directly. This matters for inline images: see <a href="#data-flow">Data flow 4.4</a>.</p>
+</section>
+
+<section id="architecture">
+<h2>3. Architecture</h2>
+<figure>
+<pre class="mermaid">
+flowchart LR
+  subgraph App["Ghosttwriter.app (macos/Sources)"]
+    direction TB
+    WS[WorkbenchStore]
+    SRV[ControlServer gtw.sock]
+    GIT[GitStatusService]
+    subgraph Win["TerminalController window, one per tab"]
+      SB[WorkbenchSidebar + GoalsPanel]
+      TV[TerminalView + SurfaceViews]
+      SP[SidePane]
+      SC[SnapshotCard overlay]
+    end
+    RD[ResumeDashboard]
+    CS[CloseSheet]
+  end
+  DB[(state.db SQLite)]
+  GTW[gtw CLI]
+  PL[claude-plugin hooks + skill]
+  CC[claude in a SurfaceView]
+  CC --> PL --> GTW
+  CC -- Bash tool --> GTW
+  GTW -- JSON over unix socket --> SRV --> WS
+  WS <--> DB
+  GIT --> WS
+  WS --> SB & SP & SC & RD
+  CS --> WS
+  RD -->|"new tab: claude --resume"| TV
+</pre>
+<figcaption>Figure 1. Everything Claude-related enters through one door (<code>gtw</code> → <code>gtw.sock</code>), and every view reads from one <code>WorkbenchStore</code>. Note the arrow from the dashboard back into a new terminal tab.</figcaption>
+</figure>
+<p><strong>Where things live:</strong></p>
+<ul>
+<li><strong>New code goes in <code>macos/Sources/Features/Workbench/</code></strong>, and upstream files get only small hook-in edits. This keeps <code>git merge upstream/main</code> cheap.</li>
+<li><strong>The core (Zig) is not changed.</strong> Every new behavior sits in the Swift app, the <code>gtw</code> binary and the Claude Code plugin.</li>
+<li><strong><code>WorkbenchStore</code> is the single source of truth.</strong> It is a <code>@MainActor ObservableObject</code> shared across all windows. Views never write to SQLite themselves, and nothing outside the app touches <code>state.db</code>.</li>
+<li><strong>Native tabs stay.</strong> The sidebar selects and reorders the existing <code>NSWindow.tabGroup</code> and hides its tab bar. Restore, AppleScript, <code>goto_tab</code> keybinds and splits keep working unchanged.</li>
+<li><strong>A session is the unit of memory, not a tab.</strong> Goals, notes and status belong to a <em>session record</em>. A surface points at at most one live session record. Closing the surface detaches the record, and the dashboard reattaches it to a new surface.</li>
+</ul>
+</section>
+
+<section id="data-flow">
+<h2>4. Data flow</h2>
+
+<h3>4.1 Hook → status badge</h3>
+<figure>
+<pre class="mermaid">
+sequenceDiagram
+  participant C as claude (surface S)
+  participant H as gtw hook
+  participant Srv as ControlServer
+  participant St as WorkbenchStore
+  participant Row as Sidebar row
+  C->>H: SessionStart JSON on stdin, env GHOSTTWRITER_SURFACE=S
+  H->>Srv: {"op":"hook","surface":S,"args":{event, session_id, cwd, source}}
+  Srv->>St: attach(surface S, claudeSessionId)
+  St-->>Row: status = waiting, goals loaded
+  C->>H: UserPromptSubmit
+  H->>Srv: hook
+  Srv->>St: status = working
+  St-->>Row: spinner
+  C->>H: Stop
+  H->>Srv: hook
+  Srv->>St: status = waiting (or done if all goals checked)
+  St-->>Row: badge
+</pre>
+<figcaption>Figure 2. The hook path. <code>gtw hook</code> never blocks Claude: it forwards the hook's stdin and exits 0, even if the app isn't running.</figcaption>
+</figure>
+<p>How <code>attach</code> chooses the session record:</p>
+<ul>
+<li>A record with this <code>claude_session_id</code> already exists (a resume): it is attached to surface S.</li>
+<li>Otherwise, if S already has a record with no Claude id (the user typed goals before starting Claude): that record adopts the id.</li>
+<li>Otherwise, if <code>source == "clear"</code> and S's record has a different Claude id: the record keeps its goals and note, takes the new id, and logs a <code>relinked</code> event.</li>
+<li>Otherwise a new record is created.</li>
+</ul>
+
+<h3>4.2 Session status</h3>
+<figure>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> idle: surface opened
+  idle --> waiting: SessionStart
+  waiting --> working: UserPromptSubmit
+  working --> needs_input: Notification
+  needs_input --> working: PostToolUse / UserPromptSubmit
+  working --> working: PostToolUse
+  working --> waiting: Stop
+  waiting --> idle: SessionEnd
+  working --> idle: SessionEnd
+  needs_input --> idle: SessionEnd
+</pre>
+<figcaption>Figure 3. The status a session can be in. "done" isn't a separate state: a <code>waiting</code> session whose goals (one or more) are all checked shows a ✓ badge, and <code>gtw status done</code> sets that same flag by hand.</figcaption>
+</figure>
+
+<h3>4.3 Close tab → resume</h3>
+<figure>
+<pre class="mermaid">
+sequenceDiagram
+  actor U as User
+  participant TC as TerminalController
+  participant CS as CloseSheet
+  participant St as WorkbenchStore
+  participant RD as ResumeDashboard
+  U->>TC: ⌘W on a tab whose surface has a live Claude session
+  TC->>CS: present(record) instead of Ghostty's confirm alert
+  CS->>U: "Still to finish?" prefilled with note, else unchecked goals
+  U->>CS: Close & save
+  CS->>St: close(record, note), sets closed_at, surface_id = NULL
+  TC->>TC: closeTabImmediately()
+  U->>RD: ⌘⌥R, pick a row, Enter
+  RD->>TC: new tab, cwd = record.cwd, env TABCOLOR = record.color
+  TC->>St: attach(newSurface, record), closed_at = NULL
+  TC-->>U: types "claude --resume ID" into the new shell
+</pre>
+<figcaption>Figure 4. Closing and resuming. Because the record is reattached <em>before</em> Claude's SessionStart(resume) hook fires, that hook finds the record already attached and leaves it alone.</figcaption>
+</figure>
+<p>Closing a whole window, or quitting the app, saves every live session with no sheet. The note is the existing note, or else the unchecked goals as a bullet list.</p>
+
+<h3>4.4 <code>gtw show</code>: side pane or inline card</h3>
+<figure>
+<pre class="mermaid">
+flowchart TD
+  A["gtw show FILE [--pane or --inline]"] --> B{file type}
+  B -->|".pdf / .md"| P[open in SidePane]
+  B -->|".html / .htm"| F{flag given?}
+  F -->|"--pane"| P
+  F -->|"--inline"| R[render offscreen WKWebView]
+  F -->|none| M{"size ≤ 200 KB and no script tag?"}
+  M -->|no| P
+  M -->|yes| R
+  R --> H{"scrollHeight ≤ 600 px?"}
+  H -->|"no, and no flag"| P
+  H -->|"yes, or --inline given"| T{"gtw stdout is a TTY?"}
+  T -->|"yes: run by the user in a shell"| K[PNG written as a Kitty graphics image into scrollback]
+  T -->|"no: run from Claude's Bash tool"| C[SnapshotCard overlay on that tab's terminal]
+</pre>
+<figcaption>Figure 5. How <code>gtw show</code> decides where a file goes. Look at the TTY check: Claude's Bash output is piped, so an image can't reach Claude's screen through the terminal. From Claude, the "inline" snapshot is a card the app draws over the bottom of the terminal.</figcaption>
+</figure>
+<p>A SnapshotCard is a static PNG, at most 600 pt tall and the terminal's width less 24 pt, anchored 12 pt above the bottom edge of the tab's terminal area. Clicking it opens the file in the side pane, and × or Esc (while the card has focus) dismisses it. Each tab keeps its 3 most recent cards in a stack, newest on top. They don't move with scrollback.</p>
+</section>
+
+<section id="components">
+<h2>5. Components</h2>
+<table>
+<tr><th>Component</th><th>Responsibility</th><th>Budget</th><th>Depends on</th></tr>
+<tr><td><code>WorkbenchStore</code><br><small>Workbench/Store/</small></td><td>Holds sessions, goals, events, group order and pins in memory, and mirrors them to SQLite. Exposes <code>@Published</code> state and the mutations listed in 6.4.</td><td>≤ 700 lines</td><td>libsqlite3 (system)</td></tr>
+<tr><td><code>SQLiteDB</code><br><small>Workbench/Store/</small></td><td>A thin wrapper over the SQLite C API: open, migrate, prepared statements, transactions.</td><td>≤ 250 lines</td><td>libsqlite3</td></tr>
+<tr><td><code>ControlServer</code><br><small>Workbench/Control/</small></td><td>A Unix socket listener. Decodes one JSON request per connection, dispatches it to the store on the main actor, and writes one JSON reply.</td><td>≤ 300 lines</td><td>Network.framework or POSIX sockets, <code>WorkbenchProtocol</code></td></tr>
+<tr><td><code>WorkbenchProtocol</code><br><small>Workbench/Protocol/</small></td><td>Codable request and response types shared by the app and <code>gtw</code>. The source files are compiled into both targets.</td><td>≤ 200 lines</td><td>Foundation</td></tr>
+<tr><td><code>GitStatusService</code><br><small>Workbench/Git/</small></td><td>Resolves the repo root for a pwd and parses <code>git status --porcelain=v2 --branch</code> into <code>GitState</code>. Throttled and cached.</td><td>≤ 250 lines</td><td><code>/usr/bin/git</code></td></tr>
+<tr><td><code>ColorAllocator</code><br><small>Workbench/Store/</small></td><td>Picks the least-used Claude color among live tabs (ties broken at random) and maps names to <code>NSColor</code>.</td><td>≤ 80 lines</td><td>—</td></tr>
+<tr><td><code>WorkbenchSidebar</code><br><small>Workbench/Sidebar/</small></td><td>The SwiftUI list: a Pinned section, then repo groups (collapsible, draggable), then rows. Handles select, reorder and pin. Hosts <code>GoalsPanel</code> at the bottom.</td><td>≤ 500 lines</td><td>Store, <code>TabGroupBridge</code></td></tr>
+<tr><td><code>GoalsPanel</code><br><small>Workbench/Sidebar/</small></td><td>The selected tab's session: its goal checklist, add field, note field and a "Log" disclosure listing goal events.</td><td>≤ 300 lines</td><td>Store</td></tr>
+<tr><td><code>TabGroupBridge</code><br><small>Workbench/Sidebar/</small></td><td>The only code that touches <code>NSWindow.tabGroup</code>: select, move to index, keep the tab bar hidden, list tabs in order, and observe changes.</td><td>≤ 200 lines</td><td>AppKit</td></tr>
+<tr><td><code>SidePane</code><br><small>Workbench/SidePane/</small></td><td>Shows one document per tab with a back/forward history of 10. HTML uses <code>WKWebView</code>, Markdown is HTML rendered by bundled markdown-it, PDF uses <code>PDFView</code>. Reloads when the file changes.</td><td>≤ 450 lines + bundled JS</td><td>WebKit, PDFKit, <code>FileWatcher</code></td></tr>
+<tr><td><code>FileWatcher</code><br><small>Workbench/SidePane/</small></td><td>Uses <code>DispatchSource</code> vnode events on a file and its directory (which catches atomic-rename saves). Debounced.</td><td>≤ 120 lines</td><td>Dispatch</td></tr>
+<tr><td><code>SnapshotRenderer</code><br><small>Workbench/SidePane/</small></td><td>Loads HTML in an offscreen <code>WKWebView</code> at a given width, measures <code>scrollHeight</code> and takes a PNG snapshot.</td><td>≤ 150 lines</td><td>WebKit</td></tr>
+<tr><td><code>SnapshotCard</code><br><small>Workbench/SidePane/</small></td><td>The overlay card stack drawn over the terminal area.</td><td>≤ 150 lines</td><td>Store</td></tr>
+<tr><td><code>CloseSheet</code><br><small>Workbench/Resume/</small></td><td>The "Still to finish?" sheet. Its buttons: Close &amp; save (default), Close without saving, Cancel.</td><td>≤ 150 lines</td><td>Store</td></tr>
+<tr><td><code>ResumeDashboard</code><br><small>Workbench/Resume/</small></td><td>A window (⌘⌥R) listing closed sessions newest first, with a search field, Enter to resume and ⌫ to delete.</td><td>≤ 300 lines</td><td>Store, <code>TerminalController</code></td></tr>
+<tr><td><code>gtw</code><br><small>macos/gtw/ (new CLI target)</small></td><td>A Swift command-line tool copied to <code>Ghosttwriter.app/Contents/MacOS/gtw</code>. It runs the subcommands in 6.2 and draws Kitty images when its stdout is a TTY.</td><td>≤ 500 lines</td><td><code>WorkbenchProtocol</code></td></tr>
+<tr><td><code>claude-plugin/</code><br><small>repo root</small></td><td>The Claude Code plugin <code>ghosttwriter</code>: <code>hooks/hooks.json</code> (6 events → <code>gtw hook</code>), the skill <code>skills/ghosttwriter/SKILL.md</code>, and <code>shell/ghosttwriter.zsh</code> (the <code>claude</code> wrapper that replaces tabcolor.zsh).</td><td>≤ 200 lines total</td><td><code>gtw</code></td></tr>
+</table>
+<h3>Upstream files touched</h3>
+<table>
+<tr><th>File</th><th>Edit</th></tr>
+<tr><td><code>macos/Sources/Features/Terminal/TerminalView.swift</code></td><td>Wrap the content in an <code>HStack</code>: <code>WorkbenchSidebar</code> | existing split tree with a <code>SnapshotCard</code> overlay | <code>SidePane</code></td></tr>
+<tr><td><code>macos/Sources/Features/Terminal/TerminalController.swift</code></td><td>Call <code>WorkbenchCloseHook</code> before the tab-close confirmation, and call <code>TabGroupBridge.hideTabBar</code> after tabs are added. Add <code>newTab(resuming:)</code>.</td></tr>
+<tr><td><code>macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift</code></td><td>In <code>init</code>, add <code>GHOSTTWRITER_SURFACE</code> and <code>TABCOLOR</code> to the surface configuration's environment before the surface is created</td></tr>
+<tr><td><code>macos/Sources/App/AppDelegate.swift</code></td><td>Start the store and <code>ControlServer</code> at launch and save live sessions at terminate. Add a Workbench menu with the 4 shortcuts.</td></tr>
+<tr><td><code>macos/Sources/Features/Terminal/Window Styles/*</code></td><td>Treat <code>macos-titlebar-style = tabs</code> as <code>transparent</code></td></tr>
+<tr><td><code>macos/Sources/Features/Update/*</code>, Info.plist</td><td>Turn off Sparkle updates. Set the bundle id to <code>com.jonmoses.ghosttwriter</code> and the product name to Ghosttwriter.</td></tr>
+<tr><td><code>macos/Ghostty.xcodeproj</code></td><td>Add the Workbench sources, the <code>gtw</code> target and its copy phase, the bundled JS resources, and link libsqlite3.</td></tr>
+</table>
+</section>
+
+<section id="interfaces">
+<h2>6. Interfaces</h2>
+
+<h3>6.1 Environment set on every surface</h3>
+<pre>GHOSTTWRITER_SURFACE=&lt;SurfaceView.id.uuidString, e.g. 6F1C…-…&gt;
+TABCOLOR=&lt;red|blue|green|yellow|purple|orange|pink|cyan&gt;   # a split inherits its tab's color
+GHOSTTWRITER_SOCKET=$HOME/Library/Application Support/Ghosttwriter/gtw.sock</pre>
+
+<h3>6.2 <code>gtw</code> command line</h3>
+<pre>gtw goal add "&lt;text&gt;"            # prints the new goal's index (1-based)
+gtw goal done &lt;index&gt;
+gtw goal undo &lt;index&gt;
+gtw goal rm &lt;index&gt;
+gtw goal list [--json]            # "[x] 1. text" per line
+gtw note "&lt;text&gt;"                 # set the session's still-to-finish note; "" clears it
+gtw status done|clear             # set or clear the manual done flag
+gtw show &lt;file&gt; [--pane|--inline]
+gtw color &lt;name&gt;                  # change the tab color; prints "/color &lt;name&gt;" for the user to run in Claude
+gtw hook                          # reads Claude hook JSON on stdin and forwards it
+gtw info [--json]                 # surface, session record, claude session id, status
+global flags: --surface &lt;uuid&gt; (default $GHOSTTWRITER_SURFACE), --socket &lt;path&gt;
+exit codes: 0 ok · 1 app reported an error (message on stderr) · 2 usage error · 3 app not reachable
+gtw hook always exits 0 and prints nothing.</pre>
+<p>When a goal command arrives from Claude, the author is <code>claude</code>: <code>gtw</code> sets <code>author:"claude"</code> when the <code>CLAUDECODE</code> environment variable is <code>1</code>. Otherwise the author is <code>user</code>.</p>
+
+<h3>6.3 Socket protocol</h3>
+<p>The socket is a Unix stream socket at <code>$GHOSTTWRITER_SOCKET</code> with mode 0600. Each connection carries one request: a UTF-8 JSON object terminated by <code>\n</code>. The server sends one reply line and closes.</p>
+<pre>request:  {"v":1,"op":"&lt;op&gt;","surface":"&lt;uuid&gt;","author":"user"|"claude","args":{…}}
+reply:    {"ok":true,"data":{…}}  |  {"ok":false,"error":"&lt;message&gt;"}
+
+op            args                                              data
+hook          {"event","session_id","cwd","source"?,"message"?} {}
+goal.add      {"text"}                                          {"index"}
+goal.done     {"index"}                                         {}
+goal.undo     {"index"}                                         {}
+goal.rm       {"index"}                                         {}
+goal.list     {}                                                {"goals":[{"index","text","done","author"}]}
+note.set      {"text"}                                          {}
+status.set    {"done":true|false}                               {}
+show          {"path","mode":"auto"|"pane"|"inline","tty":bool} {"placed":"pane"|"card"|"tty","png"?:"&lt;abs path&gt;"}
+color.set     {"name"}                                          {}
+info          {}                                                {"surface","record_id","claude_session_id"?,"status","color","cwd"}</pre>
+<p>When <code>show</code> answers <code>placed:"tty"</code>, <code>gtw</code> itself writes the PNG at <code>png</code> as a Kitty graphics image (<code>a=T,f=100,t=f</code>, base64 path) and then deletes the file.</p>
+
+<h3>6.4 <code>WorkbenchStore</code> (Swift)</h3>
+<pre>@MainActor final class WorkbenchStore: ObservableObject {
+  static let shared: WorkbenchStore
+  @Published private(set) var records: [UUID: SessionRecord]        // live and closed
+  @Published private(set) var surfaceRecord: [UUID: UUID]           // surface id → record id
+  @Published private(set) var git: [String: GitState]               // repo root → state
+  @Published var groupOrder: [String]                               // repo roots; "" = Other
+  @Published var pinned: Set&lt;UUID&gt;                                  // record ids
+
+  func record(for surface: UUID, create: Bool) -&gt; SessionRecord?
+  func handleHook(surface: UUID, event: HookEvent) throws
+  func addGoal(surface: UUID, text: String, author: Author) throws -&gt; Int
+  func setGoal(surface: UUID, index: Int, done: Bool, author: Author) throws
+  func removeGoal(surface: UUID, index: Int, author: Author) throws
+  func setNote(surface: UUID, text: String) throws
+  func setManualDone(surface: UUID, _ done: Bool) throws
+  func close(surface: UUID, note: String?) throws                   // nil note = discard: delete record
+  func reattach(record: UUID, to surface: UUID) throws
+  func closedRecords(matching query: String) -&gt; [SessionRecord]      // newest first
+  func deleteRecord(_ id: UUID) throws
+}
+
+struct SessionRecord: Identifiable { id: UUID; claudeSessionId: String?; surfaceId: UUID?;
+  cwd: String; repoRoot: String?; title: String; color: ClaudeColor; status: SessionStatus;
+  manualDone: Bool; note: String; goals: [Goal]; createdAt, updatedAt: Date; closedAt: Date? }
+struct Goal { id: Int64; text: String; done: Bool; author: Author; createdAt: Date; doneAt: Date? }
+enum SessionStatus: String { case idle, waiting, working, needsInput = "needs_input" }
+enum ClaudeColor: String, CaseIterable { case red, blue, green, yellow, purple, orange, pink, cyan }
+enum Author: String { case user, claude }
+struct GitState { branch: String; ahead: Int; behind: Int; staged: Int; unstaged: Int; untracked: Int }</pre>
+
+<h3>6.5 Storage</h3>
+<figure>
+<pre class="mermaid">
+erDiagram
+  sessions ||--o{ goals : has
+  sessions ||--o{ goal_events : logs
+  goals ||--o{ goal_events : about
+  sessions {
+    TEXT id PK
+    TEXT claude_session_id UK
+    TEXT surface_id
+    TEXT cwd
+    TEXT repo_root
+    TEXT title
+    TEXT color
+    TEXT status
+    INT manual_done
+    TEXT note
+    TEXT created_at
+    TEXT updated_at
+    TEXT closed_at
+  }
+  goals {
+    INT id PK
+    TEXT session_id FK
+    INT position
+    TEXT text
+    INT done
+    TEXT author
+    TEXT created_at
+    TEXT done_at
+  }
+  goal_events {
+    INT id PK
+    TEXT session_id FK
+    INT goal_id
+    TEXT kind
+    TEXT text
+    TEXT author
+    TEXT at
+  }
+  ui_state {
+    TEXT key PK
+    TEXT value
+  }
+</pre>
+<figcaption>Figure 6. <code>state.db</code>. <code>goal_events.kind</code> is one of add, done, undo, remove, relinked, note. <code>ui_state</code> holds <code>group_order</code> and <code>pinned</code> as JSON arrays. Timestamps are ISO 8601 UTC. Look at <code>sessions.surface_id</code>: it is NULL exactly when the session is closed.</figcaption>
+</figure>
+<p>File: <code>~/Library/Application Support/Ghosttwriter/state.db</code>, WAL mode, <code>PRAGMA user_version = 1</code>. Migrations run in order at launch.</p>
+
+<h3>6.6 Claude Code plugin</h3>
+<pre>claude-plugin/.claude-plugin/plugin.json      {"name":"ghosttwriter","version":"0.1.0"}
+claude-plugin/hooks/hooks.json                SessionStart, UserPromptSubmit, PostToolUse, Notification, Stop, SessionEnd
+                                              → {"type":"command","command":"gtw hook","timeout":2}
+claude-plugin/skills/ghosttwriter/SKILL.md    when to run gtw goal add / done, gtw note, gtw show
+claude-plugin/shell/ghosttwriter.zsh          claude() wrapper: appends "/color $TABCOLOR" under the same rules as tabcolor.zsh</pre>
+<p>The skill tells Claude to:</p>
+<ul>
+<li>add 1 to 4 high-level goals at the start of a task (outcomes, not steps);</li>
+<li>check a goal only when its outcome has been verified;</li>
+<li>set <code>gtw note</code> whenever it stops with work left;</li>
+<li>use <code>gtw show</code> for any HTML, Markdown or PDF it wants the user to look at.</li>
+</ul>
+</section>
+
+<section id="constraints">
+<h2>7. Constraints</h2>
+<ol>
+<li>macOS 14 or later only. No changes under <code>src/</code> (Zig) or <code>pkg/</code>.</li>
+<li>Bundle id <code>com.jonmoses.ghosttwriter</code>, product name <code>Ghosttwriter</code>, Sparkle updates off.</li>
+<li>Ghosttwriter reads the same <code>~/.config/ghostty/config</code> as Ghostty, and adds no new Ghostty config keys.</li>
+<li>No native tab bar is ever visible in a Ghosttwriter window. The tab-group order always matches the sidebar order top to bottom, so ⌘1–⌘9 select the 1st–9th sidebar rows.</li>
+<li>Sidebar width defaults to 240 pt, can be dragged between 180 and 400 pt, and is remembered in UserDefaults key <code>workbench.sidebarWidth</code>.</li>
+<li>Side pane width defaults to 45% of the window, can be dragged between 25% and 70%, and is remembered in <code>workbench.sidePaneFraction</code>.</li>
+<li>Shortcuts: ⌘⌥S toggles the sidebar, ⌘⌥P toggles the side pane, ⌘⌥R opens the resume dashboard, and ⌘⌥G focuses the goal add field.</li>
+<li>Each sidebar row shows, in order: color dot, title, cwd basename, branch with ↑ahead ↓behind, a dirty marker ● if staged + unstaged + untracked &gt; 0, a status badge, and goal progress "done/total" when total &gt; 0.</li>
+<li>Rows are grouped by git toplevel, with the group label being the basename of the repo root. Non-repo tabs go in a group labelled "Other". Pinned rows show only in the Pinned section at the top.</li>
+<li>Rows can be reordered by dragging only within their own group. Groups can be reordered by dragging their headers.</li>
+<li>Git status refreshes on a pwd change and every 5 s for repos visible in the key window. Each run has a 2 s timeout, at most 4 git processes run at once, and a timed-out repo shows "?" instead of counts.</li>
+<li>Status badges: working = spinner, waiting = hollow dot, needs_input = orange "!", done = ✓, idle = no badge.</li>
+<li>Colors: a new tab gets the least-used of the 8 Claude colors among live tabs, with ties broken at random. Splits inherit their tab's color.</li>
+<li><code>gtw hook</code> sends at most 64 KB of stdin. It gives up after 500 ms when it can't reach the socket, and always exits 0.</li>
+<li>The ControlServer handles each request in under 50 ms on the main actor, not counting <code>show</code> rendering, which runs asynchronously with a 5 s limit.</li>
+<li>The close sheet appears only for ⌘W / Close Tab on a tab with a non-idle session that is not done. It replaces Ghostty's own confirm alert there. All other closes save without asking.</li>
+<li>The close sheet's note is prefilled with the existing note, or else "- " + each unchecked goal on its own line.</li>
+<li>Resuming opens a new tab in the record's cwd with <code>TABCOLOR</code> set to the record's color and the record reattached. If the record has a <code>claude_session_id</code>, the tab also types the initial input <code>claude --resume &lt;claude_session_id&gt;\n</code>. If it has none (goals were typed but Claude never started), no input is typed.</li>
+<li>Closed records are kept for 90 days or until there are 500 of them, whichever comes first, and pruning happens at launch. Goal events are deleted together with their record.</li>
+<li>Inline rule: HTML goes inline only if the file is ≤ 200 KB, contains no <code>&lt;script</code>, and has <code>scrollHeight</code> ≤ 600 px at a render width of min(terminal width − 24 pt, 1000 pt). Otherwise it opens in the pane.</li>
+<li>A tab's SnapshotCard stack holds at most 3 cards. A new card pushes out the oldest.</li>
+<li>Side pane reloads are debounced by 150 ms after the last file event and keep the scroll position (HTML/MD) or page (PDF).</li>
+<li>Markdown rendering uses bundled markdown-it 14.1.0 and mermaid 11.4.1 from app resources and makes no network requests.</li>
+<li>The socket has mode 0600 and the directory 0700. Requests over 1 MB are rejected.</li>
+</ol>
+</section>
+
+<section id="testing">
+<h2>8. Testing</h2>
+<p><strong>Unit tests</strong> live in <code>macos/Tests/Workbench/</code> and run with <code>macos/build.nu --action test</code>.</p>
+<ul>
+<li><code>WorkbenchStoreTests</code>, against a temp-dir SQLite file:
+  <ul>
+  <li>every <code>attach</code> rule in 4.1, including <code>clear</code> relink and resume reattach;</li>
+  <li>goal add, check, uncheck and remove, each writing exactly one event with the right author;</li>
+  <li>close then reattach keeps goals and note;</li>
+  <li>pruning at 90 days and 500 records;</li>
+  <li>everything survives reopening the database.</li>
+  </ul></li>
+<li><code>StatusMachineTests</code>: every transition in Figure 3, and that "done" is derived correctly from goals plus <code>manualDone</code>.</li>
+<li><code>ColorAllocatorTests</code>: least-used choice, the tie set, and splits inheriting.</li>
+<li><code>GitPorcelainTests</code>: parses fixture outputs (clean, ahead/behind, detached head, no upstream, untracked only) into <code>GitState</code>.</li>
+<li><code>ProtocolTests</code>: each op round-trips through Codable, and unknown ops and bad versions return <code>ok:false</code>.</li>
+<li><code>ControlServerTests</code>: a real socket in a temp dir. Covers request and reply, the 1 MB rejection and the 0600 mode.</li>
+<li><code>ShowRoutingTests</code>: each branch of Figure 5, with fixture HTML (small static, tall static, scripted, 300 KB).</li>
+<li><code>TabGroupBridgeTests</code>: with 5 tabs, select, move and hide keep the tab bar hidden and the order equal to the sidebar's.</li>
+</ul>
+<p><strong>gtw tests</strong> in <code>macos/Tests/Workbench/GtwTests</code> run the built binary against a test socket server and check argument parsing, exit codes 0–3, the author detection from <code>CLAUDECODE</code>, that <code>hook</code> exits 0 with no server, and that the Kitty escape is written only when stdout is a TTY.</p>
+<p><strong>Plugin test:</strong> <code>claude-plugin/tests/hooks.sh</code> pipes the recorded hook JSON fixtures through <code>gtw hook --socket</code> into a test server and checks the resulting statuses.</p>
+<p><strong>First real use</strong> (manual checklist, run once on the built app):</p>
+<ol>
+<li>Open 8 tabs across 3 repos plus <code>~</code>. Check the groups and colors, that no tab bar shows, and that ⌘1–⌘9 match the sidebar.</li>
+<li>Run <code>claude</code> in two tabs. The badges go working → waiting live, and a permission prompt shows "!".</li>
+<li>Ask Claude to set goals. They appear in the panel with author claude, and the log lists them.</li>
+<li>⌘W one Claude tab, edit the note, save. ⌘⌥R lists it. Enter resumes the same session in the same cwd and color, with goals intact.</li>
+<li>Quit the app with 2 Claude tabs open, relaunch, and check that both are in the dashboard with auto notes.</li>
+<li>Ask Claude to write a small HTML mockup and <code>gtw show</code> it, which should give a card. Then a long report, which should open in the pane. Edit the report and check that the pane reloads with its scroll position kept.</li>
+<li>Run <code>gtw show small.html</code> yourself in a plain shell and check that the image appears in scrollback.</li>
+<li>Run <code>git merge upstream/main</code> on a scratch branch and check that conflicts touch only the files in "Upstream files touched".</li>
+</ol>
+</section>
+
+<section id="out-of-scope">
+<h2>9. Out of scope</h2>
+<ul>
+<li>WYSIWYG editing of Markdown and HTML, and PDF annotation and form fill. These are planned for v2; the v1 side pane only views.</li>
+<li>Linux/GTK, iOS, and the Quick Terminal (which gets no sidebar).</li>
+<li>Live, interactive web views inside the terminal's scrollback.</li>
+<li>Manual tab groups, and nesting tabs inside other tabs.</li>
+<li>Syncing <code>state.db</code> across machines, and any network service.</li>
+<li>AppleScript or App Intents access to workbench data.</li>
+<li>Parsing terminal output to infer Claude's state: only hooks are used.</li>
+<li>Upstreaming any of this to ghostty-org.</li>
+</ul>
+</section>
+
+<section id="open-questions">
+<h2>10. Open questions</h2>
+<p>None.</p>
+</section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({startOnLoad:true,suppressErrorRendering:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'neutral'});
+document.getElementById('toc').innerHTML=[...document.querySelectorAll('section[id]')].map(s=>'<a href="#'+s.id+'">'+s.querySelector('h2').textContent.replace(/^\d+\.\s*/,'')+'</a>').join('');
+</script>
+</body>
+</html>

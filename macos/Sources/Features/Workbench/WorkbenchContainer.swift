@@ -47,6 +47,7 @@ struct WorkbenchContainer<Content: View>: View {
                     .frame(width: (width * SidePane.clamp(paneFraction)).rounded())
             }
         }
+        .onAppear { bridge.connect() }
         // Measured in the background so the terminal's ideal size still sizes new windows.
         .background(GeometryReader { geo in
             Color.clear
@@ -59,9 +60,21 @@ struct WorkbenchContainer<Content: View>: View {
 /// Keeps one `TabGroupBridge` for the life of the container's view.
 @MainActor
 private final class BridgeHolder: ObservableObject {
-    let bridge: TabGroupBridge?
+    @Published private(set) var bridge: TabGroupBridge?
+    private weak var window: NSWindow?
 
     init(window: NSWindow?) {
-        bridge = window.map(TabGroupBridge.init(window:))
+        self.window = window
+    }
+
+    /// Creates the bridge on the next run-loop turn. AppKit builds a window's tab group
+    /// lazily and lays the window out while doing so, which traps ("setting value during
+    /// update") when the first access comes from inside a SwiftUI update.
+    func connect() {
+        guard bridge == nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.bridge == nil, let window = self.window else { return }
+            self.bridge = TabGroupBridge(window: window)
+        }
     }
 }

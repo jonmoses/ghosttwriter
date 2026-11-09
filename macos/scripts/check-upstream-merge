@@ -1,0 +1,9 @@
+#!/bin/sh
+# List files a merge with upstream/main would conflict on; fail if any is outside the allowed set.
+set -eu
+git fetch -q upstream main
+allowed='^(macos/Sources/Features/Terminal/TerminalView\.swift|macos/Sources/Features/Terminal/TerminalController\.swift|macos/Sources/Features/Terminal/BaseTerminalController\.swift|macos/Sources/Ghostty/Surface View/SurfaceView(_AppKit)?\.swift|macos/Sources/App/AppDelegate\.swift|macos/Sources/Features/Terminal/Window Styles/.*|macos/Sources/Features/Update/.*|macos/Ghostty-Info\.plist|macos/Ghostty\.xcodeproj/project\.pbxproj|README\.md)$'
+conflicts=$(git merge-tree --write-tree --name-only HEAD upstream/main | sed '1d;/^$/,$d' || true)
+bad=$(printf '%s\n' "$conflicts" | grep -v '^$' | grep -Ev "$allowed" || true)
+[ -z "$bad" ] || { echo "conflicts outside allowed files:"; echo "$bad"; exit 1; }
+echo "upstream merge ok (${conflicts:+conflicts: $(echo $conflicts)})"

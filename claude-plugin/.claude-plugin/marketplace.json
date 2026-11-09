@@ -1,0 +1,11 @@
+{
+  "name": "ghosttwriter",
+  "owner": { "name": "Jon Moses" },
+  "plugins": [
+    {
+      "name": "ghosttwriter",
+      "source": "./",
+      "description": "Report Claude Code session state to Ghosttwriter"
+    }
+  ]
+}

@@ -35,7 +35,7 @@ struct WorkbenchStoreTests {
         _ = s.surfaceOpened(S, cwd: "/repo", inheritFrom: nil)
         try s.handleHook(surface: S, event: hook("SessionStart", "c1"))
         _ = try s.addGoal(surface: S, text: "ship fix", author: .claude)
-        try s.setNote(surface: S, text: "tests left")
+        try s.setNote(surface: S, text: "tests left", author: .user)
         try s.handleHook(surface: S, event: hook("SessionStart", "c2", source: "clear"))
         let r = try #require(try s.record(for: S, create: false))
         #expect(r.claudeSessionId == "c2" && r.goals.count == 1 && r.note == "tests left" && s.records.count == 1)
@@ -139,11 +139,62 @@ struct WorkbenchStoreTests {
         let s = try store(); let S = UUID()
         _ = s.surfaceOpened(S, cwd: "/work/payments", inheritFrom: nil)
         try s.handleHook(surface: S, event: HookEvent(name: "SessionStart", sessionId: "c1", cwd: "/work/payments", source: nil, message: nil))
-        try s.setNote(surface: S, text: "refund edge case")
+        try s.setNote(surface: S, text: "refund edge case", author: .user)
         s.surfaceClosed(S)
         #expect(s.closedRecords(matching: "refund").count == 1)
         #expect(s.closedRecords(matching: "payments").count == 1)
         #expect(s.closedRecords(matching: "zzz").isEmpty)
+    }
+
+    @Test func undoneSheetCloseCanReattachRecord() throws {
+        let s = try store(); let S = UUID()
+        _ = s.surfaceOpened(S, cwd: "/repo", inheritFrom: nil)
+        try s.handleHook(surface: S, event: hook("SessionStart", "c1"))
+        let rid = try #require(try s.record(for: S, create: false)?.id)
+        try s.close(surface: S, note: "later")
+        // What surfacesDetached reads before the surface leaves the live set.
+        #expect(s.lastRecord(for: S) == rid)
+        s.surfaceClosed(S)
+        #expect(s.lastRecord(for: S) == nil)
+        // Undo brings the surface back and reattaches; later hooks land on the record.
+        _ = s.surfaceOpened(S, cwd: "/repo", inheritFrom: nil)
+        try s.reattach(record: rid, to: S)
+        try s.handleHook(surface: S, event: hook("UserPromptSubmit", "c1"))
+        let r = try #require(try s.record(for: S, create: false))
+        #expect(r.id == rid && r.closedAt == nil && r.status == .working)
+    }
+
+    @Test func discardedSheetCloseLeavesNothingToReattach() throws {
+        let s = try store(); let S = UUID()
+        _ = s.surfaceOpened(S, cwd: "/repo", inheritFrom: nil)
+        try s.handleHook(surface: S, event: hook("SessionStart", "c1"))
+        try s.close(surface: S, note: nil)
+        #expect(s.lastRecord(for: S) == nil && s.records.isEmpty)
+    }
+
+    @Test func noteEventKeepsAuthor() throws {
+        let s = try store(); let S = UUID()
+        _ = s.surfaceOpened(S, cwd: "/repo", inheritFrom: nil)
+        try s.setNote(surface: S, text: "from claude", author: .claude)
+        let r = try #require(try s.record(for: S, create: false))
+        let e = try #require(try s.events(record: r.id).last)
+        #expect(e.kind == .note && e.author == .claude)
+    }
+
+    @Test func colorCountsEachTabOnce() throws {
+        let s = try store(); let A = UUID()
+        let x = s.surfaceOpened(A, cwd: "/", inheritFrom: nil)
+        _ = s.surfaceOpened(UUID(), cwd: "/", inheritFrom: A)
+        _ = s.surfaceOpened(UUID(), cwd: "/", inheritFrom: A)
+        // Every other color on two tabs; x on one tab (three surfaces).
+        for c in ClaudeColor.allCases where c != x {
+            for _ in 0..<2 {
+                let t = UUID()
+                _ = s.surfaceOpened(t, cwd: "/", inheritFrom: nil)
+                try s.setColor(surface: t, c)
+            }
+        }
+        #expect(s.surfaceOpened(UUID(), cwd: "/", inheritFrom: nil) == x)
     }
 
     @Test func splitsInheritColor() throws {

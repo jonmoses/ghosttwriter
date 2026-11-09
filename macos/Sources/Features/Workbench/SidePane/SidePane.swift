@@ -222,11 +222,19 @@ private struct SidePaneWebView: NSViewRepresentable {
         }
 
         /// Loads the rendered page from a temp file. A page loaded from a string cannot read
-        /// the bundled scripts, and WebKit grants read access to one directory per load, so the
-        /// grant is the common ancestor of the page, the document's directory and the
-        /// resources, and `<base>` resolves the document's relative links and images.
+        /// the scripts, so they are copied next to the page. WebKit grants read access to one
+        /// directory per load, so the grant is the common ancestor of the page folder and the
+        /// document's directory, and `<base>` resolves the document's relative links and
+        /// images. Raw HTML is not rendered and the page's CSP blocks every network load.
         private func loadMarkdown(_ url: URL, dir: URL, in webView: WKWebView) {
-            let resources = MarkdownPage.bundledResources
+            let folder = Self.pageFolder
+            let resources: URL
+            do {
+                try MarkdownPage.copyScripts(from: MarkdownPage.bundledResources, to: folder)
+                resources = folder
+            } catch {
+                resources = MarkdownPage.bundledResources
+            }
             let text: String
             if let data = try? Data(contentsOf: url) {
                 text = String(decoding: data, as: UTF8.self)
@@ -237,7 +245,6 @@ private struct SidePaneWebView: NSViewRepresentable {
             html = html.replacingOccurrences(
                 of: "<head>",
                 with: "<head>\n<base href=\"\(MarkdownPage.escapeHTML(dir.absoluteString))\">")
-            let folder = Self.pageFolder
             let file = folder.appendingPathComponent("\(UUID().uuidString).html")
             removePage()
             do {

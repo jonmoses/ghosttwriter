@@ -16,8 +16,14 @@ struct ShowRoutingTests {
         let big = FileManager.default.temporaryDirectory.appendingPathComponent("big-\(UUID()).html")
         try String(repeating: "<p>x</p>", count: 30_000).write(to: big, atomically: true, encoding: .utf8)
         #expect(try ShowRouting.preflight(path: big.path, mode: .auto) == .pane)
-        #expect(try ShowRouting.preflight(path: "/x/a.md", mode: .inline) == .pane)
-        #expect(try ShowRouting.preflight(path: "/x/a.pdf", mode: .auto) == .pane)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("pre-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let md = dir.appendingPathComponent("a.md"), pdf = dir.appendingPathComponent("a.pdf")
+        try Data("# a".utf8).write(to: md); try Data().write(to: pdf)
+        #expect(try ShowRouting.preflight(path: md.path, mode: .inline) == .pane)
+        #expect(try ShowRouting.preflight(path: pdf.path, mode: .auto) == .pane)
+        #expect(throws: WorkbenchError.notFound("/nope/x.md")) { try ShowRouting.preflight(path: "/nope/x.md", mode: .auto) }
+        #expect(throws: WorkbenchError.notFound("/nope/x.pdf")) { try ShowRouting.preflight(path: "/nope/x.pdf", mode: .pane) }
         #expect(try ShowRouting.preflight(path: "/x/a.txt", mode: .auto) == .unsupported)
         #expect(throws: WorkbenchError.notFound("/nope/x.html")) { try ShowRouting.preflight(path: "/nope/x.html", mode: .auto) }
     }

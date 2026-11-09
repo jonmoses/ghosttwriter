@@ -105,7 +105,7 @@ final class ControlServer {
 
         case .noteSet:
             _ = try store.record(for: surface, create: true)
-            try store.setNote(surface: surface, text: try Self.string(r, "text"))
+            try store.setNote(surface: surface, text: try Self.string(r, "text"), author: r.author)
             return .success()
 
         case .statusSet:

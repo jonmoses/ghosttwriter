@@ -30,10 +30,16 @@ public final class SocketListener: @unchecked Sendable {
                 atPath: dir, withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700])
             guard chmod(dir, 0o700) == 0 else { throw POSIXError.current }
+            // Another running instance owns the socket: leave it alone. A stale file is replaced.
+            if Self.isServing(path) { throw POSIXError(.EADDRINUSE) }
             unlink(path)
 
             let s = socket(AF_UNIX, SOCK_STREAM, 0)
             guard s >= 0 else { throw POSIXError.current }
+            // Accepted sockets inherit this. Setting it after accept fails on a connection
+            // the peer already closed (such as the probe in `isServing`), and a reply
+            // written to it would then raise SIGPIPE.
+            SocketIO.setNoSigPipe(s)
             var addr = try SocketIO.address(path)
             let bound = withUnsafePointer(to: &addr) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -65,6 +71,21 @@ public final class SocketListener: @unchecked Sendable {
             src.cancel()
             unlink(path)
         }
+    }
+
+    /// True when something accepts connections on the socket at `path`.
+    static func isServing(_ path: String) -> Bool {
+        guard var addr = try? SocketIO.address(path) else { return false }
+        let s = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard s >= 0 else { return false }
+        defer { close(s) }
+        SocketIO.setNoSigPipe(s)
+        let connected = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return connected == 0
     }
 
     private func acceptPending() {

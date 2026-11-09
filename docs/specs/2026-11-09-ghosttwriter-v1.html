@@ -236,6 +236,8 @@ flowchart TD
 <tr><th>File</th><th>Edit</th></tr>
 <tr><td><code>macos/Sources/Features/Terminal/TerminalView.swift</code></td><td>Wrap the content in an <code>HStack</code>: <code>WorkbenchSidebar</code> | existing split tree with a <code>SnapshotCard</code> overlay | <code>SidePane</code></td></tr>
 <tr><td><code>macos/Sources/Features/Terminal/TerminalController.swift</code></td><td>Call <code>WorkbenchCloseHook</code> before the tab-close confirmation, and call <code>TabGroupBridge.hideTabBar</code> after tabs are added. Add <code>newTab(resuming:)</code>.</td></tr>
+<tr><td><code>macos/Sources/Features/Terminal/BaseTerminalController.swift</code></td><td>Report surfaces joining and leaving the split tree, and the window closing, to <code>WorkbenchEnvironment</code> so records are saved at close and reattached on undo. Pass the split's parent surface id in the new surface's configuration.</td></tr>
+<tr><td><code>macos/Sources/Ghostty/Surface View/SurfaceView.swift</code></td><td>Add <code>workbenchParent</code> to <code>SurfaceConfiguration</code> so a split shares its tab's color</td></tr>
 <tr><td><code>macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift</code></td><td>In <code>init</code>, add <code>GHOSTTWRITER_SURFACE</code> and <code>TABCOLOR</code> to the surface configuration's environment before the surface is created</td></tr>
 <tr><td><code>macos/Sources/App/AppDelegate.swift</code></td><td>Start the store and <code>ControlServer</code> at launch and save live sessions at terminate. Add a Workbench menu with the 4 shortcuts.</td></tr>
 <tr><td><code>macos/Sources/Features/Terminal/Window Styles/*</code></td><td>Treat <code>macos-titlebar-style = tabs</code> as <code>transparent</code></td></tr>

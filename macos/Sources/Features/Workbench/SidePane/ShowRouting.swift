@@ -15,11 +15,11 @@ enum ShowRouting {
     /// Decides from the file alone whether it goes to the pane, gets rendered, or has no preview.
     static func preflight(path: String, mode: ShowMode) throws -> ShowPreflight {
         let url = URL(fileURLWithPath: path)
-        switch SidePaneKind.of(url) {
-        case .none: return .unsupported
-        case .markdown?, .pdf?: return .pane
-        case .html?:
-            guard FileManager.default.fileExists(atPath: path) else { throw WorkbenchError.notFound(path) }
+        guard let kind = SidePaneKind.of(url) else { return .unsupported }
+        guard FileManager.default.fileExists(atPath: path) else { throw WorkbenchError.notFound(path) }
+        switch kind {
+        case .markdown, .pdf: return .pane
+        case .html:
             if mode == .pane { return .pane }
             if mode == .inline { return .render }
             let size = (try FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? .max

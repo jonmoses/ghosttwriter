@@ -40,6 +40,14 @@ final class WorkbenchStore: ObservableObject {
     private let db: SQLiteDB
     private let now: () -> Date
 
+    /// Surfaces opened as splits of another surface. They share their tab's color and are
+    /// left out when counting colors among live tabs (constraint 13).
+    private var splitSurfaces: Set<UUID> = []
+
+    /// Surface → the record `close(surface:note:)` saved for it, so a tab whose close is
+    /// undone can take the record back. Cleared when the surface leaves the live set.
+    private var closedRecord: [UUID: UUID] = [:]
+
     init(dbPath: String, now: @escaping () -> Date = Date.init) throws {
         self.db = try SQLiteDB(path: dbPath)
         self.now = now
@@ -65,9 +73,11 @@ final class WorkbenchStore: ObservableObject {
             color = existing.color
         } else if let parent, let p = liveSurfaces[parent] {
             color = p.color
+            splitSurfaces.insert(surface)
         } else {
             var rng = SystemRandomNumberGenerator()
-            color = ColorAllocator.pick(inUse: liveSurfaces.values.map(\.color), using: &rng)
+            let tabColors = liveSurfaces.values.filter { !splitSurfaces.contains($0.id) }.map(\.color)
+            color = ColorAllocator.pick(inUse: tabColors, using: &rng)
         }
         let title = liveSurfaces[surface]?.title ?? ""
         liveSurfaces[surface] = LiveSurface(id: surface, cwd: cwd, title: title, color: color)
@@ -102,6 +112,14 @@ final class WorkbenchStore: ObservableObject {
         }
         surfaceRecord[surface] = nil
         liveSurfaces[surface] = nil
+        splitSurfaces.remove(surface)
+        closedRecord[surface] = nil
+    }
+
+    /// The record attached to `surface`, or else the one the close sheet just saved for it.
+    /// Read when a surface leaves the live set so an undone close can reattach it.
+    func lastRecord(for surface: UUID) -> UUID? {
+        surfaceRecord[surface] ?? closedRecord[surface]
     }
 
     func color(for surface: UUID) -> ClaudeColor? {
@@ -220,14 +238,14 @@ final class WorkbenchStore: ObservableObject {
 
     // MARK: Note and done
 
-    func setNote(surface: UUID, text: String) throws {
+    func setNote(surface: UUID, text: String, author: Author) throws {
         try requireLive(surface)
         try transact {
             var r = try ensureRecord(surface)
             r.note = text
             r.updatedAt = now()
             try save(r)
-            try logEvent(r.id, goalId: nil, kind: .note, text: text, author: .user)
+            try logEvent(r.id, goalId: nil, kind: .note, text: text, author: author)
         }
     }
 
@@ -254,7 +272,11 @@ final class WorkbenchStore: ObservableObject {
                 try deleteRow(rid)
             }
         }
-        if note == nil { pinned.remove(rid) }
+        if note == nil {
+            pinned.remove(rid)
+        } else {
+            closedRecord[surface] = rid
+        }
     }
 
     func reattach(record: UUID, to surface: UUID) throws {

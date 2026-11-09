@@ -136,6 +136,6 @@ struct GoalsPanel: View {
         guard store.liveSurfaces[surface] != nil else { return }
         let stored = store.surfaceRecord[surface].flatMap { store.records[$0] }?.note ?? ""
         guard noteDraft != stored else { return }
-        try? store.setNote(surface: surface, text: noteDraft)
+        try? store.setNote(surface: surface, text: noteDraft, author: .user)
     }
 }

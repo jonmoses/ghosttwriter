@@ -50,6 +50,21 @@ struct SidePaneModelTests {
         let html = MarkdownPage.html(markdown: "# Hi\n```mermaid\ngraph LR; a-->b\n```", title: "T", resources: URL(fileURLWithPath: "/R"))
         #expect(html.contains("file:///R/markdown-it.min.js") && html.contains("file:///R/mermaid.min.js"))
         #expect(!html.contains("http://") && !html.contains("https://"))
+        #expect(html.contains("html: false") && !html.contains("html: true"))
+        #expect(html.contains("http-equiv=\"Content-Security-Policy\"") && html.contains("default-src 'none'"))
+    }
+
+    @Test func markdownScriptsAreCopiedBesideThePage() throws {
+        let fm = FileManager.default
+        let src = fm.temporaryDirectory.appendingPathComponent("res-\(UUID())")
+        let dst = fm.temporaryDirectory.appendingPathComponent("page-\(UUID())")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        for name in MarkdownPage.scriptNames { try Data(name.utf8).write(to: src.appendingPathComponent(name)) }
+        try MarkdownPage.copyScripts(from: src, to: dst)
+        try MarkdownPage.copyScripts(from: src, to: dst) // a second load reuses the copies
+        for name in MarkdownPage.scriptNames {
+            #expect(try Data(contentsOf: dst.appendingPathComponent(name)) == Data(name.utf8))
+        }
     }
 
     @Test func markdownAnchorLinksStayInPage() {

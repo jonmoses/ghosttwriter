@@ -2,10 +2,31 @@ import Foundation
 
 /// Builds the HTML page that renders a Markdown file with the bundled markdown-it and mermaid.
 ///
-/// The page loads its scripts only from `resources` (the app bundle) and makes no network
-/// requests. Mermaid fences become `<pre class="mermaid">` and are drawn by `mermaid.run()`.
+/// The page loads its scripts only from `resources` and makes no network requests: raw HTML
+/// in the Markdown is not rendered, and a Content-Security-Policy allows only local files.
+/// Mermaid fences become `<pre class="mermaid">` and are drawn by `mermaid.run()`.
 /// `window.__gtwReady` resolves once rendering, diagrams included, has finished.
 enum MarkdownPage {
+    static let scriptNames = ["markdown-it.min.js", "mermaid.min.js"]
+
+    /// Blocks every network load: scripts, styles, images and fonts come only from local
+    /// files or the page itself; nothing may connect, frame or embed.
+    static let contentSecurityPolicy =
+        "default-src 'none'; script-src file: 'unsafe-inline'; style-src 'unsafe-inline'; "
+        + "img-src file: data:; font-src file: data:"
+
+    /// Copies the bundled scripts into `folder` (once) so the page can be granted read access
+    /// to that folder instead of the app bundle.
+    static func copyScripts(from resources: URL, to folder: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in scriptNames {
+            let target = folder.appendingPathComponent(name)
+            if fm.fileExists(atPath: target.path) { continue }
+            try fm.copyItem(at: resources.appendingPathComponent(name), to: target)
+        }
+    }
+
     static func html(markdown: String, title: String, resources: URL) -> String {
         let markdownIt = resources.appendingPathComponent("markdown-it.min.js").absoluteString
         let mermaid = resources.appendingPathComponent("mermaid.min.js").absoluteString
@@ -14,6 +35,7 @@ enum MarkdownPage {
         <html>
         <head>
         <meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy)">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>\(escapeHTML(title))</title>
         <style>\(style)</style>
@@ -50,7 +72,7 @@ enum MarkdownPage {
     private static let script = """
     window.__gtwReady = (async function () {
       var source = JSON.parse(document.getElementById('source').textContent);
-      var md = window.markdownit({ html: true });
+      var md = window.markdownit({ html: false });
       var fence = md.renderer.rules.fence;
       md.renderer.rules.fence = function (tokens, idx, options, env, self) {
         var token = tokens[idx];

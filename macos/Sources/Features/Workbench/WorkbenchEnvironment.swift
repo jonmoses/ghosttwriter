@@ -98,7 +98,7 @@ enum WorkbenchEnvironment {
                 }
                 guard store.liveSurfaces[view.id] != nil else { continue }
                 view.workbenchClosedColor = store.color(for: view.id)
-                view.workbenchClosedRecord = store.surfaceRecord[view.id]
+                view.workbenchClosedRecord = store.lastRecord(for: view.id)
                 store.surfaceClosed(view.id)
             }
         }

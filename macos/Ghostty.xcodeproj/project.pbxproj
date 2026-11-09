@@ -25,6 +25,8 @@
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
+		6A7B10042FB0000100C0FFEE /* WorkbenchProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 6A7B10022FB0000100C0FFEE /* WorkbenchProtocol */; };
+		6A7B10052FB0000100C0FFEE /* WorkbenchProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 6A7B10032FB0000100C0FFEE /* WorkbenchProtocol */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,6 +144,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6A7B10052FB0000100C0FFEE /* WorkbenchProtocol in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,6 +155,7 @@
 				A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */,
 				A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */,
 				A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */,
+				6A7B10042FB0000100C0FFEE /* WorkbenchProtocol in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -277,6 +281,7 @@
 			);
 			name = GhosttyTests;
 			packageProductDependencies = (
+				6A7B10032FB0000100C0FFEE /* WorkbenchProtocol */,
 			);
 			productName = GhosttyTests;
 			productReference = A54F45F32E1F047A0046BD5C /* GhosttyTests.xctest */;
@@ -303,6 +308,7 @@
 			name = Ghostty;
 			packageProductDependencies = (
 				A51BFC262B30F1B800E92F16 /* Sparkle */,
+				6A7B10022FB0000100C0FFEE /* WorkbenchProtocol */,
 			);
 			productName = Ghostty;
 			productReference = A5B30531299BEAAA0047F10C /* Ghostty.app */;
@@ -346,6 +352,7 @@
 			mainGroup = A5B30528299BEAAA0047F10C;
 			packageReferences = (
 				A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				6A7B10012FB0000100C0FFEE /* XCLocalSwiftPackageReference "gtw" */,
 			);
 			productRefGroup = A5B30532299BEAAA0047F10C /* Products */;
 			projectDirPath = "";
@@ -1094,6 +1101,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		6A7B10012FB0000100C0FFEE /* XCLocalSwiftPackageReference "gtw" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = gtw;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1110,6 +1124,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		6A7B10022FB0000100C0FFEE /* WorkbenchProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6A7B10012FB0000100C0FFEE /* XCLocalSwiftPackageReference "gtw" */;
+			productName = WorkbenchProtocol;
+		};
+		6A7B10032FB0000100C0FFEE /* WorkbenchProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6A7B10012FB0000100C0FFEE /* XCLocalSwiftPackageReference "gtw" */;
+			productName = WorkbenchProtocol;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -43,4 +43,18 @@ struct WorkbenchIntegrationTests {
         let keys = menu.items.first?.submenu?.items.filter { !$0.isSeparatorItem }.map { "\($0.keyEquivalentModifierMask.contains([.command, .option]) ? "⌘⌥" : "")\($0.keyEquivalent)" }
         #expect(keys == ["⌘⌥s", "⌘⌥p", "⌘⌥r", "⌘⌥g"])
     }
+
+    @Test func quickTerminalSurfacesAreNotWorkbenchTabs() {
+        #expect(WorkbenchEnvironment.isQuickTerminal(["GHOSTTY_QUICK_TERMINAL": "1"]))
+        #expect(!WorkbenchEnvironment.isQuickTerminal([:]))
+    }
+
+    @Test func pwdChangeIsForwardedForGitRefresh() {
+        let saved = WorkbenchEnvironment.onCwdChange
+        defer { WorkbenchEnvironment.onCwdChange = saved }
+        var seen: [String] = []
+        WorkbenchEnvironment.onCwdChange = { seen.append($0) }
+        WorkbenchEnvironment.cwdChanged("/repo/sub")
+        #expect(seen == ["/repo/sub"])
+    }
 }

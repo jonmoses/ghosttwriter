@@ -50,8 +50,16 @@ class BaseTerminalController: NSWindowController,
         didSet {
             Self.updateSurfaceControllers(self, from: oldValue, to: surfaceTree)
             surfaceTreeDidChange(from: oldValue, to: surfaceTree)
+
+            // Ghosttwriter: a closed split saves its record now, not when undo lets it go.
+            WorkbenchEnvironment.surfacesDetached(oldValue.filter { !surfaceTree.contains($0) })
+            WorkbenchEnvironment.surfacesAttached(surfaceTree.filter { !oldValue.contains($0) }, to: self)
         }
     }
+
+    /// Ghosttwriter: set once this controller's window closes, so its surfaces count as closed
+    /// although an undo of the close may still hold them.
+    private(set) var workbenchWindowClosed = false
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
@@ -152,6 +160,7 @@ class BaseTerminalController: NSWindowController,
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
         self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
         Self.updateSurfaceControllers(self, from: .init(), to: surfaceTree)
+        WorkbenchEnvironment.surfacesAttached(Array(surfaceTree), to: self)
 
         // Setup our bell state for the window
         setupBellNotificationPublisher()
@@ -1234,6 +1243,10 @@ class BaseTerminalController: NSWindowController,
 
     func windowWillClose(_ notification: Notification) {
         guard let window else { return }
+
+        // Ghosttwriter: the tab is closed now, even if undo keeps its surfaces alive.
+        workbenchWindowClosed = true
+        WorkbenchEnvironment.surfacesDetached(Array(surfaceTree))
 
         for surfaceView in surfaceTree {
             cancelPendingClipboardConfirmation(for: surfaceView)

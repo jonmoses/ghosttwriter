@@ -452,6 +452,7 @@ class AppDelegate: NSObject,
         try? WorkbenchStore.shared.saveAllLive()
         controlServer?.stop()
         gitStatus?.stop()
+        WorkbenchEnvironment.onCwdChange = nil
 
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
@@ -1034,6 +1035,11 @@ class AppDelegate: NSObject,
         let git = GitStatusService(store: store)
         git.startPolling(visibleCwds: { Self.keyTabGroupCwds(store: store) })
         gitStatus = git
+
+        // A pwd change refreshes that cwd at once instead of waiting for the next poll.
+        WorkbenchEnvironment.onCwdChange = { [weak git] cwd in
+            Task { @MainActor in await git?.refresh(cwd: cwd) }
+        }
 
         if let mainMenu = NSApp.mainMenu {
             WorkbenchMenu.install(in: mainMenu, target: self)

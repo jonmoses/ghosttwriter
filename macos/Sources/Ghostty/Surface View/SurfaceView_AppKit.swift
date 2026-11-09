@@ -4,6 +4,7 @@ import SwiftUI
 import CoreText
 import UserNotifications
 import GhosttyKit
+import WorkbenchProtocol
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
@@ -229,6 +230,15 @@ extension Ghostty {
         /// Ghosttwriter: subscriptions forwarding pwd and title changes to the workbench store.
         private var workbenchCancellables: Set<AnyCancellable> = []
 
+        /// Ghosttwriter: false for quick-terminal surfaces, which are not workbench tabs and
+        /// take no part in colors, records or the sidebar.
+        var workbenchTracked = true
+
+        /// Ghosttwriter: the color and record this surface had when its tab or split closed,
+        /// so an undo of that close can register it again as it was.
+        var workbenchClosedColor: ClaudeColor?
+        var workbenchClosedRecord: UUID?
+
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
@@ -388,14 +398,18 @@ extension Ghostty {
 
             // Ghosttwriter: register the surface with the workbench and give its shell
             // the surface id, tab color and control socket before the shell starts.
+            // Quick-terminal surfaces are not workbench tabs and are left alone.
             var surface_cfg = baseConfig ?? SurfaceConfiguration()
-            WorkbenchEnvironment.apply(
-                to: &surface_cfg.environmentVariables,
-                surface: id,
-                cwd: surface_cfg.workingDirectory ?? NSHomeDirectory(),
-                parent: surface_cfg.workbenchParent,
-                store: .shared)
-            observeWorkbenchChanges()
+            workbenchTracked = !WorkbenchEnvironment.isQuickTerminal(surface_cfg.environmentVariables)
+            if workbenchTracked {
+                WorkbenchEnvironment.apply(
+                    to: &surface_cfg.environmentVariables,
+                    surface: id,
+                    cwd: surface_cfg.workingDirectory ?? NSHomeDirectory(),
+                    parent: surface_cfg.workbenchParent,
+                    store: .shared)
+                observeWorkbenchChanges()
+            }
 
             // Setup our surface. This will also initialize all the terminal IO.
             let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
@@ -418,27 +432,31 @@ extension Ghostty {
             fatalError("init(coder:) is not supported for this view")
         }
 
-        /// Forwards pwd and title changes to the workbench store.
+        /// Forwards pwd and title changes to the workbench store, and refreshes git status
+        /// for a new pwd at once rather than on the next poll.
         private func observeWorkbenchChanges() {
             let id = self.id
             $pwd
                 .removeDuplicates()
-                .sink { pwd in
-                    guard let pwd, !pwd.isEmpty else { return }
+                .sink { [weak self] pwd in
+                    guard let self, self.workbenchTracked, let pwd, !pwd.isEmpty else { return }
                     WorkbenchStore.shared.surfaceChanged(id, cwd: pwd, title: nil)
+                    WorkbenchEnvironment.cwdChanged(pwd)
                 }
                 .store(in: &workbenchCancellables)
             $title
                 .removeDuplicates()
-                .sink { title in
-                    guard !title.isEmpty else { return }
+                .sink { [weak self] title in
+                    guard let self, self.workbenchTracked, !title.isEmpty else { return }
                     WorkbenchStore.shared.surfaceChanged(id, cwd: nil, title: title)
                 }
                 .store(in: &workbenchCancellables)
         }
 
         deinit {
-            // Ghosttwriter: the surface is gone, so its session record is saved or dropped.
+            // Ghosttwriter: closing its tab or split already saved the session record
+            // (WorkbenchEnvironment.surfacesDetached); this is the fallback for a surface
+            // that never sat in a controller. surfaceClosed is a no-op when already closed.
             let workbenchSurface = self.id
             if Thread.isMainThread {
                 MainActor.assumeIsolated { WorkbenchStore.shared.surfaceClosed(workbenchSurface) }

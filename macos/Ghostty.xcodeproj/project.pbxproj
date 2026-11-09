@@ -415,24 +415,13 @@
 /* Begin PBXShellScriptBuildPhase section */
 		6A7B10102FB0000100C0FFEE /* Build gtw */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/gtw/Package.swift",
-				"$(SRCROOT)/gtw/Sources/gtw",
-				"$(SRCROOT)/gtw/Sources/GtwCore",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol",
-				"$(SRCROOT)/gtw/Sources/gtw/main.swift",
-				"$(SRCROOT)/gtw/Sources/GtwCore/Gtw.swift",
-				"$(SRCROOT)/gtw/Sources/GtwCore/KittyImage.swift",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketClient.swift",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketIO.swift",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/SocketListener.swift",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/Types.swift",
-				"$(SRCROOT)/gtw/Sources/WorkbenchProtocol/WireCodec.swift",
 			);
 			name = "Build gtw";
 			outputFileListPaths = (

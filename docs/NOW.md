@@ -3,7 +3,7 @@
 ## Active
 | Spec or plan | Stage | Branch | Since |
 |---|---|---|---|
-| docs/plans/2026-11-09-ghosttwriter-v1.md | executing | ghosttwriter-v1 | 2026-11-09 |
+| docs/plans/2026-11-09-ghosttwriter-v1.md | review | ghosttwriter-v1 | 2026-11-09 |
 
 ## Waiting to deploy
 Nothing.

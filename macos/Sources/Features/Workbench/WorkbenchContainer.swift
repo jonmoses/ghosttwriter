@@ -7,6 +7,7 @@ import SwiftUI
 struct WorkbenchContainer<Content: View>: View {
     @ObservedObject private var paneModel: SidePaneModel
     private let store: WorkbenchStore
+    private let background: Color
     private let focusedSurface: (NSWindow) -> UUID?
     private let content: Content
 
@@ -19,11 +20,13 @@ struct WorkbenchContainer<Content: View>: View {
         window: NSWindow?,
         paneModel: SidePaneModel,
         store: WorkbenchStore,
+        background: Color,
         focusedSurface: @escaping (NSWindow) -> UUID?,
         @ViewBuilder content: () -> Content
     ) {
         self.paneModel = paneModel
         self.store = store
+        self.background = background
         self.focusedSurface = focusedSurface
         self.content = content()
         _bridge = StateObject(wrappedValue: BridgeHolder(window: window))
@@ -32,7 +35,7 @@ struct WorkbenchContainer<Content: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             if sidebarVisible, let bridge = bridge.bridge {
-                WorkbenchSidebar(store: store, bridge: bridge, focusedSurface: focusedSurface)
+                WorkbenchSidebar(store: store, bridge: bridge, background: background, focusedSurface: focusedSurface)
             }
 
             content

@@ -10,6 +10,9 @@ struct WorkbenchSidebar: View {
 
     @ObservedObject private var store: WorkbenchStore
     private let bridge: TabGroupBridge
+    /// The terminal's configured background at its configured opacity, so the sidebar reads
+    /// as part of the same window instead of a separate translucent panel.
+    private let background: Color
     private let focusedSurface: (NSWindow) -> UUID?
 
     @StateObject private var tabsChanged = TabsChangeObserver()
@@ -17,9 +20,15 @@ struct WorkbenchSidebar: View {
     @State private var collapsed: Set<String> = []
     @State private var dragStartWidth: Double?
 
-    init(store: WorkbenchStore, bridge: TabGroupBridge, focusedSurface: @escaping (NSWindow) -> UUID?) {
+    init(
+        store: WorkbenchStore,
+        bridge: TabGroupBridge,
+        background: Color,
+        focusedSurface: @escaping (NSWindow) -> UUID?
+    ) {
         self.store = store
         self.bridge = bridge
+        self.background = background
         self.focusedSurface = focusedSurface
     }
 
@@ -42,6 +51,7 @@ struct WorkbenchSidebar: View {
             .frame(width: Self.clamp(width))
             resizeHandle
         }
+        .background(background)
         .onAppear {
             tabsChanged.attach(bridge)
             syncNativeOrder(order)
@@ -76,6 +86,8 @@ struct WorkbenchSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // The sidebar style otherwise draws its own vibrancy material over `background`.
+        .scrollContentBackground(.hidden)
     }
 
     private func header(_ section: SidebarSection, sections: [SidebarSection]) -> some View {
@@ -114,9 +126,11 @@ struct WorkbenchSidebar: View {
     }
 
     private var resizeHandle: some View {
+        // A hairline separator centered in the 5 pt drag target.
         Rectangle()
             .fill(Color.clear)
             .frame(width: 5)
+            .overlay(Rectangle().fill(Color.primary.opacity(0.08)).frame(width: 1))
             .contentShape(Rectangle())
             .onHover { inside in
                 if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }

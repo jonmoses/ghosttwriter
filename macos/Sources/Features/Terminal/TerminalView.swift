@@ -145,6 +145,7 @@ extension TerminalView {
                 window: workbenchWindow,
                 paneModel: workbenchPane,
                 store: .shared,
+                background: ghostty.config.backgroundColor.opacity(ghostty.config.backgroundOpacity),
                 focusedSurface: { ($0.windowController as? BaseTerminalController)?.focusedSurface?.id },
                 content: content)
         } else {

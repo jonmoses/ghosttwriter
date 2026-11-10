@@ -131,7 +131,14 @@
           "glass": false,
           "hidden": false,
           "image-name": "Screen.png",
-          "name": "Screen"
+          "name": "Screen",
+          "position": {
+            "scale": 1.04,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
         }
       ],
       "lighting": "individual",

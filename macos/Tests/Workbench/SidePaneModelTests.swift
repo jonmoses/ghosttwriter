@@ -1,0 +1,84 @@
+import Foundation
+import Testing
+@testable import Ghostty
+
+@MainActor
+struct SidePaneModelTests {
+    @Test func kinds() {
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.HTML")) == .html)
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.htm")) == .html)
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.md")) == .markdown)
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.markdown")) == .markdown)
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.pdf")) == .pdf)
+        #expect(SidePaneKind.of(URL(fileURLWithPath: "/a.txt")) == nil)
+    }
+
+    @Test func historyCapsAtTenAndNavigates() {
+        let m = SidePaneModel()
+        for i in 0..<12 { m.open(URL(fileURLWithPath: "/d\(i).md")) }
+        #expect(m.visible && m.current?.lastPathComponent == "d11.md")
+        for _ in 0..<20 { m.back() }
+        #expect(m.current?.lastPathComponent == "d2.md" && !m.canGoBack)
+        m.forward(); #expect(m.current?.lastPathComponent == "d3.md")
+        m.open(URL(fileURLWithPath: "/x.md")); #expect(!m.canGoForward)
+    }
+
+    @Test func reopeningSameFileBumpsReload() {
+        let m = SidePaneModel(); let u = URL(fileURLWithPath: "/a.md")
+        m.open(u); let t = m.reloadToken; m.open(u)
+        #expect(m.reloadToken == t + 1 && m.current == u)
+    }
+
+    @Test func cardsCapAtThreeNewestFirst() {
+        let m = SidePaneModel()
+        let items = (0..<4).map { SnapshotCardItem(id: UUID(), png: URL(fileURLWithPath: "/p\($0).png"), source: URL(fileURLWithPath: "/s\($0).html")) }
+        items.forEach(m.pushCard)
+        #expect(m.cards.map(\.id) == [items[3].id, items[2].id, items[1].id])
+        m.dismissCard(items[2].id); #expect(m.cards.count == 2)
+    }
+
+    @Test func registryFindsOwner() {
+        let a = SidePaneModel(), b = SidePaneModel(); let s = UUID()
+        SidePaneRegistry.shared.register(a) { _ in false }
+        SidePaneRegistry.shared.register(b) { $0 == s }
+        defer { SidePaneRegistry.shared.unregister(a); SidePaneRegistry.shared.unregister(b) }
+        #expect(SidePaneRegistry.shared.model(for: s) === b)
+        #expect(SidePaneRegistry.shared.model(for: UUID()) == nil)
+    }
+
+    @Test func markdownPageUsesBundledScriptsOnly() {
+        let html = MarkdownPage.html(markdown: "# Hi\n```mermaid\ngraph LR; a-->b\n```", title: "T", resources: URL(fileURLWithPath: "/R"))
+        #expect(html.contains("file:///R/markdown-it.min.js") && html.contains("file:///R/mermaid.min.js"))
+        #expect(!html.contains("http://") && !html.contains("https://"))
+        #expect(html.contains("html: false") && !html.contains("html: true"))
+        #expect(html.contains("http-equiv=\"Content-Security-Policy\"") && html.contains("default-src 'none'"))
+    }
+
+    @Test func markdownScriptsAreCopiedBesideThePage() throws {
+        let fm = FileManager.default
+        let src = fm.temporaryDirectory.appendingPathComponent("res-\(UUID())")
+        let dst = fm.temporaryDirectory.appendingPathComponent("page-\(UUID())")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        for name in MarkdownPage.scriptNames { try Data(name.utf8).write(to: src.appendingPathComponent(name)) }
+        try MarkdownPage.copyScripts(from: src, to: dst)
+        try MarkdownPage.copyScripts(from: src, to: dst) // a second load reuses the copies
+        for name in MarkdownPage.scriptNames {
+            #expect(try Data(contentsOf: dst.appendingPathComponent(name)) == Data(name.utf8))
+        }
+    }
+
+    @Test func markdownAnchorLinksStayInPage() {
+        let page = URL(string: "file:///tmp/G/abc.html")!
+        let doc = URL(fileURLWithPath: "/docs/notes.md")
+        let base = doc.deletingLastPathComponent()
+        func frag(_ s: String, base: URL?) -> String? {
+            SidePaneLinks.inPageFragment(URL(string: s)!, page: page, document: doc, baseDirectory: base)
+        }
+        #expect(frag("file:///docs/#intro", base: base) == "intro")
+        #expect(frag("file:///docs/notes.md#intro", base: base) == "intro")
+        #expect(frag("file:///tmp/G/abc.html#x", base: base) == "x")
+        #expect(frag("file:///docs/other.md#x", base: base) == nil)
+        #expect(frag("file:///docs/", base: base) == nil)
+        #expect(frag("file:///docs/#intro", base: nil) == nil)
+    }
+}

@@ -6,6 +6,8 @@
 	<true/>
 	<key>NSDockTilePlugIn</key>
 	<string>DockTilePlugin.plugin</string>
+	<key>CFBundleName</key>
+	<string>Ghosttwriter</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Launch the built app, talk to it through gtw, and check the database it writes.
+set -eu
+here=$(cd "$(dirname "$0")/.." && pwd)
+app="$here/build/Debug/Ghostty.app"
+sock="$HOME/Library/Application Support/Ghosttwriter/gtw.sock"
+db="$HOME/Library/Application Support/Ghosttwriter/state.db"
+"$here/build.nu"
+[ -x "$app/Contents/MacOS/gtw" ] || { echo "FAIL: gtw not bundled"; exit 1; }
+# A socket left by an app that did not quit cleanly would end the wait below before the app listens.
+pgrep -qf "$app/Contents/MacOS/ghostty" || rm -f "$sock"
+# The user's config may say confirm-close-surface = always, which would hold the quit below on a dialog.
+open "$app" --args --confirm-close-surface=false
+i=0; while [ ! -S "$sock" ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i+1)); done
+[ -S "$sock" ] || { echo "FAIL: no socket"; exit 1; }
+mode=$(stat -f %Lp "$sock"); [ "$mode" = 600 ] || { echo "FAIL: socket mode $mode"; exit 1; }
+set +e
+out=$("$app/Contents/MacOS/gtw" goal list --surface 00000000-0000-4000-8000-000000000000 2>&1); code=$?
+set -e
+[ $code -eq 1 ] && echo "$out" | grep -q "unknown surface" || { echo "FAIL: gtw said ($code) $out"; exit 1; }
+echo '{"session_id":"x","cwd":"/","hook_event_name":"Stop"}' | GHOSTTWRITER_SURFACE=00000000-0000-4000-8000-000000000000 "$app/Contents/MacOS/gtw" hook
+v=$(sqlite3 "$db" "PRAGMA user_version"); [ "$v" = 1 ] || { echo "FAIL: user_version $v"; exit 1; }
+osascript -e "tell application \"$app\" to quit"
+echo "smoke ok"

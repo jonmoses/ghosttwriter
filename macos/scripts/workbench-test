@@ -1,0 +1,8 @@
+#!/bin/sh
+# Run one GhosttyTests suite with the same clean environment as build.nu.
+set -eu
+here=$(cd "$(dirname "$0")/.." && pwd)
+[ $# -eq 1 ] || { echo "usage: workbench-test SUITE" >&2; exit 2; }
+exec env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  xcodebuild -project "$here/Ghostty.xcodeproj" -scheme Ghostty -configuration Debug \
+  SYMROOT="$here/build" -skip-testing GhosttyUITests "-only-testing:GhosttyTests/$1" test

@@ -1,3 +1,9 @@
+> **Ghosttwriter.** This repository is Ghosttwriter, a macOS-only fork of Ghostty that adds a
+> workbench for running several Claude Code sessions side by side: a vertical tab sidebar grouped by
+> git repo, per-session goals, a resume dashboard and a side pane for HTML, Markdown and PDF. See
+> [docs/ghosttwriter.md](docs/ghosttwriter.md) for what it adds, how to build it and how to set it up.
+> The rest of this README is upstream Ghostty's.
+
 <!-- LOGO -->
 <h1>
 <p align="center">

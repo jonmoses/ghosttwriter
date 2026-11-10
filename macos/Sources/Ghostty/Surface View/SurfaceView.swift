@@ -599,6 +599,10 @@ extension Ghostty {
         /// Context for surface creation
         var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
+        /// Ghosttwriter: the surface this one was split from, so the split shares its tab color.
+        /// New tabs and windows leave it nil and get a fresh color.
+        var workbenchParent: UUID?
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {

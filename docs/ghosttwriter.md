@@ -175,3 +175,25 @@ Run once on the built app:
 8. Run `git merge upstream/main` on a scratch branch (or
    `sh macos/scripts/check-upstream-merge`) and check that conflicts touch
    only the upstream files Ghosttwriter edits.
+
+## Rules for changes
+
+- No changes under `src/` (Zig) or `pkg/`; the macOS app targets macOS 14 or later only.
+- New code goes in `macos/Sources/Features/Workbench/`; upstream files get only the small hook-in edits `sh macos/scripts/check-upstream-merge` allows.
+- `WorkbenchStore` is the only writer of `state.db`; views and `gtw` never touch SQLite.
+- `TabGroupBridge` is the only code that touches `NSWindow.tabGroup`; the tab-group order always matches the sidebar order.
+- Sidebar width defaults to 240 pt, drags between 180 and 400 pt, and is stored in UserDefaults `workbench.sidebarWidth`.
+- Side pane width defaults to 45% of the window, drags between 25% and 70%, and is stored in `workbench.sidePaneFraction`.
+- Rows reorder by drag only within their own group; groups reorder by their headers; pinned rows show only in the Pinned section.
+- Git status refreshes on a pwd change and every 5 s for repos visible in the key window, with a 2 s timeout per run and at most 4 git processes; a timed-out repo shows "?".
+- Status badges: working = spinner, waiting = hollow dot, needs_input = orange "!", done = ✓, idle = none.
+- A new tab gets the least-used of the 8 Claude colors among live tabs, ties broken at random; splits inherit their tab's color.
+- `gtw hook` sends at most 64 KB of stdin, gives up after 500 ms without the socket, and always exits 0.
+- ControlServer handles each request in under 50 ms on the main actor; `show` rendering runs asynchronously with a 5 s limit; requests over 1 MB are rejected.
+- The close sheet appears only for ⌘W / Close Tab on a tab whose session is non-idle and not done, replacing Ghostty's confirm alert; every other close saves without asking.
+- The close sheet's note is prefilled with the existing note, else "- " plus each unchecked goal on its own line.
+- Resuming opens a new tab in the record's cwd and color with the record reattached, and types `claude --resume <id>` only when the record has a Claude session id.
+- Goal events are deleted together with their record.
+- A tab's snapshot card stack holds at most 3 cards; a new card pushes out the oldest.
+- Side pane reloads are debounced 150 ms after the last file event and keep the scroll position (HTML/MD) or page (PDF).
+- Markdown renders with bundled markdown-it 14.1.0 and mermaid 11.4.1 and makes no network requests.
